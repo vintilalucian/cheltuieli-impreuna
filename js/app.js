@@ -331,6 +331,11 @@ function render() {
   bindViewSpecificEvents();
 }
 
+function accOwnerLabel(owner) {
+  const o = String(owner || "").trim().toLowerCase();
+  return (!o || o === SHARED_OWNER) ? "proprietar nesetat" : store.getPartnerName(owner);
+}
+
 function singleMemberView() {
   const s = store.state;
   return store.isConnected() && Array.isArray(s.members) && s.members.length === 1;
@@ -536,9 +541,9 @@ function renderDashboard() {
         <button class="btn btn-sm btn-secondary" data-view="catalog">Gestionează</button>
       </div>
       <div class="mini-card" style="margin-bottom:10px; display:block">
-        <div style="display:flex; justify-content:space-between; font-weight:800"><span>Disponibil</span><span>${formatMoney(availableTotal, a.baseCur)}</span></div>
-        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Rezervat (exclus din disponibil)</span><span>${formatMoney(reservedTotal, a.baseCur)}</span></div>
-        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Total conturi cu sold cunoscut (${knownVisible.length})</span><span>${formatMoney(totalAccounts, a.baseCur)}</span></div>
+        <div style="display:flex; justify-content:space-between; font-weight:800"><span>Disponibil</span><span>${knownVisible.length ? formatMoney(availableTotal, a.baseCur) : "–"}</span></div>
+        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Rezervat (exclus din disponibil)</span><span>${knownVisible.length ? formatMoney(reservedTotal, a.baseCur) : "–"}</span></div>
+        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Total conturi cu sold cunoscut (${knownVisible.length})</span><span>${knownVisible.length ? formatMoney(totalAccounts, a.baseCur) : "–"}</span></div>
         ${unknownBalCount ? `<div class="card-sub" style="margin-top:6px">⚠️ ${unknownBalCount} cont(uri) fără sold inițial setat: arată doar mișcările înregistrate, nu un sold, și nu intră în totaluri.</div>` : ""}
         <div class="card-sub" style="margin-top:6px">Calculat din soldurile conturilor (nu din buget sau venituri minus cheltuieli)${hiddenAccCount ? `; ${hiddenAccCount} cont(uri) personale ale celuilalt nu sunt incluse` : ""}.</div>
       </div>
@@ -549,7 +554,7 @@ function renderDashboard() {
               <div class="mini-icon" style="background:var(--primary-soft); color:var(--primary)">${accountIcon(acc.type)}</div>
               <div>
                 <div style="font-weight:700; font-size:0.86rem">${esc(acc.name)}</div>
-                <div class="card-sub">${esc(store.getPartnerName(acc.owner))} • ${esc(acc.type)}${acc.initialDate ? ` • din ${esc(acc.initialDate)}` : ""}${acc.includeInAvailable === false ? " • Rezervat" : ""}</div>
+                <div class="card-sub">${esc(accOwnerLabel(acc.owner))} • ${esc(acc.type)}${acc.initialDate ? ` • din ${esc(acc.initialDate)}` : ""}${acc.includeInAvailable === false ? " • Rezervat" : ""}</div>
               </div>
             </div>
             <div style="text-align:right; font-weight:800; font-size:0.88rem; color:${acc.visible === false ? "var(--text-muted)" : (acc.balance < 0 ? "var(--danger)" : "var(--text)")}">
@@ -881,7 +886,7 @@ function renderCatalog() {
                 <div class="card-sub">
                   ${acc.visible === false
                     ? `🔒 Personal (${esc(store.getPartnerName(acc.owner))})`
-                    : (acc.balanceKnown === false ? `Mișcări: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • sold inițial necunoscut` : `Sold: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • Inițial: ${acc.initialBalance}${acc.initialDate ? ` (${esc(acc.initialDate)})` : ""}`) + ` • ${esc(store.getPartnerName(acc.owner))}`}
+                    : (acc.balanceKnown === false ? `Mișcări: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • sold inițial necunoscut` : `Sold: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • Inițial: ${acc.initialBalance}${acc.initialDate ? ` (${esc(acc.initialDate)})` : ""}`) + ` • ${esc(accOwnerLabel(acc.owner))}`}
                 </div>
               </div>
             </div>
