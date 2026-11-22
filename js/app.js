@@ -1,3 +1,4 @@
+import { createTransactionSaveSession } from "./transaction-save.js";
 import { createRecurrenceView } from './recurrences-ui.js';
 import {
   MONTHS_RO,
@@ -1295,6 +1296,10 @@ async function copyText(text, successMsg) {
 // MODALE: Previzualizare Import, Tranzacție, Cont, Categorie, Comerciant, Valută
 // =========================================================================
 function closeModals() {
+  if (document.querySelector('#form-expense[data-saving="true"]')) {
+    showToast("Salvare în curs. Așteaptă confirmarea; formularul rămâne păstrat.", 4000);
+    return;
+  }
   document.querySelectorAll(".modal-backdrop").forEach((m) => m.classList.remove("open"));
   editingExpenseId = null;
 }
@@ -1551,6 +1556,8 @@ function openExpenseModal(expenseId) {
 
         ${exp && exp.source ? `<div class="card-sub">Sursă (idempotență): <code>${esc(exp.source)}</code></div>` : ""}
 
+        <div id="expense-save-status" class="card-sub" role="status" aria-live="polite" style="padding:12px;border:1px solid var(--border);border-radius:10px" hidden></div>
+
         ${isOwner ? `
           <div class="btn-row" style="justify-content:space-between; margin-top:6px">
             ${exp ? `<button type="button" class="btn btn-danger" id="btn-del-expense">🗑️ Șterge</button>` : `<span></span>`}
@@ -1604,8 +1611,34 @@ function openExpenseModal(expenseId) {
   };
   syncConditionalFields();
 
-  $("#form-expense").onsubmit = async (e) => {
+  const expenseForm = $("#form-expense");
+  const saveButton = expenseForm.querySelector('button[type="submit"]');
+  const saveStatus = $("#expense-save-status");
+  const saveSession = createTransactionSaveSession(store, { expenseId: exp?.id || null });
+  let saving = false;
+  let terminalFailure = false;
+  const lockFields = (locked) => expenseForm.querySelectorAll("input,select,textarea").forEach((field) => {
+    field.disabled = locked || !isOwner;
+  });
+  const statusMessage = (text, failed = false) => {
+    saveStatus.hidden = false;
+    saveStatus.textContent = text;
+    saveStatus.style.color = "var(--text)";
+    saveStatus.style.borderColor = failed ? "var(--danger,#b91c1c)" : "var(--border)";
+    saveStatus.style.fontSize = "0.88rem";
+    saveStatus.style.lineHeight = "1.5";
+  };
+
+  expenseForm.onsubmit = async (e) => {
     e.preventDefault();
+    if (saving || terminalFailure) return;
+    saving = true;
+    expenseForm.dataset.saving = "true";
+    saveButton.disabled = true;
+    saveButton.textContent = "Se salvează…";
+    statusMessage(store.isConnected()
+      ? "Se salvează. Așteptăm confirmarea din Google Sheets. Nu apăsa din nou."
+      : "Se salvează pe acest dispozitiv.");
     try {
       const type = typeEl.value;
       const amount = Number(amtEl.value);
@@ -1622,40 +1655,42 @@ function openExpenseModal(expenseId) {
       const category = catEl.value;
       const method = $("#exp-payment").value;
       const isPrivate = $("#exp-private").checked;
-
-      if (!exp && type === "transfer") {
-        await store.addTransfer({
-          date, description: description || "Transfer între conturi",
-          account, toAccount, amount, currency, rate, toAmount,
-          method, payer, isPrivate
-        });
-        closeModals();
-        showToast("Transfer adăugat (1 rând v4)!");
-        return;
-      }
-
       const payload = {
-        type, date, amount, currency, rate,
-        category, description, merchant, method,
-        isPrivate, account, toAccount, toAmount, payer
+        type, date, amount, currency, rate, category,
+        description: description || (type === "transfer" ? "Transfer între conturi" : ""),
+        merchant, method, isPrivate, account, toAccount, toAmount, payer
       };
-
-      closeModals();
-      if (exp) {
-        await store.updateExpense(exp.id, payload);
-        showToast("Înregistrare actualizată!");
+      lockFields(true);
+      const result = await saveSession.save(payload);
+      if (result.status === "confirmed" || result.status === "local") {
+        delete expenseForm.dataset.saving;
+        if ($("#form-expense") === expenseForm) closeModals();
+        showToast(result.status === "local"
+          ? "Salvat doar pe acest dispozitiv. Nu există conexiune Google Sheets."
+          : "Salvare confirmată în Google Sheets.", 4500);
+      } else if (result.status === "pending") {
+        statusMessage("Păstrat local, dar încă neconfirmat în Google Sheets. Nu adăuga din nou. Reîncercarea trimite aceeași cerere. " + result.message, true);
       } else {
-        await store.addExpense(payload);
-        showToast("Înregistrare adăugată!");
+        terminalFailure = true;
+        statusMessage("Salvarea nu este confirmată. Datele formularului au fost păstrate. Verifică operația înainte de o altă introducere. " + result.message, true);
       }
     } catch (err) {
-      showToast("Eroare validare: " + err.message, 4500);
+      statusMessage("Salvarea nu este confirmată. Datele formularului au fost păstrate. " + err.message, true);
+    } finally {
+      saving = false;
+      delete expenseForm.dataset.saving;
+      lockFields(saveSession.submitted);
+      saveButton.disabled = terminalFailure;
+      saveButton.textContent = terminalFailure ? "Salvare neconfirmată"
+        : saveSession.submitted ? "Reîncearcă sincronizarea"
+        : exp ? "💾 Salvează" : "➕ Adaugă";
     }
   };
 
   const delBtn = $("#btn-del-expense");
   if (delBtn) {
     delBtn.onclick = async () => {
+      if (saving || saveSession.submitted) return;
       if (confirm("Ștergi definitiv această înregistrare?")) {
         closeModals();
         await store.deleteExpense(exp.id);
