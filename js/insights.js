@@ -92,7 +92,7 @@ export function computeMonthlyAnalytics(store, year, month, scope = "all") {
 
   // Pe valute originale (toate tranzacțiile)
   const curMap = new Map();
-  allVisibleMonth.forEach((e) => {
+  allVisibleMonth.filter(e => (e.type || "cheltuiala") !== "ajustare").forEach((e) => {
     const code = e.currency || baseCur;
     const entry = curMap.get(code) || { code, originalTotal: 0, baseTotal: 0, count: 0 };
     entry.originalTotal = round2(entry.originalTotal + (Number(e.amount) || 0));
