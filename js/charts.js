@@ -47,7 +47,8 @@ export function renderDonutChart(byCategory, total, baseCur) {
           stroke-dasharray="${Math.max(0, dash - 2)} ${gap + 2}"
           stroke-dashoffset="${offset}"
           transform="rotate(-90 ${cx} ${cy})"
-          class="donut-slice"
+          class="donut-slice${slice.id && slice.id !== "_rest" ? " tappable" : ""}"
+          ${slice.id && slice.id !== "_rest" ? `data-chart-category="${escapeHtml(String(slice.id))}"` : ""}
         >
           <title>${slice.name}: ${formatMoney(slice.total, baseCur)} (${Math.round(slice.pct)}%)</title>
         </circle>
@@ -63,7 +64,7 @@ export function renderDonutChart(byCategory, total, baseCur) {
           ? `<span class="cat-budget-pill ${overClass}">${Math.round(c.budgetPct)}% din ${formatMoney(c.budget, baseCur)}</span>`
           : "";
       return `
-        <div class="legend-row">
+        <div class="legend-row tappable" data-chart-category="${escapeHtml(String(c.id))}" role="button" tabindex="0" aria-label="Tranzacțiile din ${escapeHtml(c.name)}">
           <div class="legend-left">
             <span class="legend-dot" style="background:${c.color}"></span>
             <span class="legend-icon">${c.icon}</span>
@@ -126,7 +127,8 @@ export function renderMonthlyTrendChart(trend6Months, budget, p1Name, p2Name, ba
       const labelY = Math.max(12, y2 - 6);
 
       return `
-        <g class="bar-group">
+        <g class="bar-group tappable" data-chart-month="${m.year}-${m.month}" role="button" aria-label="Luna ${m.label} ${m.year}">
+          <rect x="${padL + idx * colW}" y="0" width="${colW}" height="${h}" fill="transparent"/>
           ${m.p1 > 0 ? `<rect x="${x}" y="${y1}" width="${barW}" height="${h1}" rx="4" fill="#3b82f6"><title>${p1Name}: ${formatMoney(m.p1, baseCur)}</title></rect>` : ""}
           ${m.p2 > 0 ? `<rect x="${x}" y="${y2}" width="${barW}" height="${h2}" rx="4" fill="#ec4899"><title>${p2Name}: ${formatMoney(m.p2, baseCur)}</title></rect>` : ""}
           ${m.total > 0 ? `<text x="${x + barW / 2}" y="${labelY}" text-anchor="middle" class="bar-top-val">${formatCompact(m.total)}</text>` : ""}
@@ -180,7 +182,8 @@ export function renderDailyBarsChart(dailyTotals, baseCur) {
       const y = padT + chartH - bh;
       const showTick = d.day === 1 || d.day % 5 === 0 || d.day === dailyTotals.length;
       return `
-        <g>
+        <g class="tappable" data-chart-day="${d.day}" role="button" aria-label="Ziua ${d.day}">
+          <rect x="${i * step}" y="0" width="${step}" height="${h}" fill="transparent"/>
           <rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="3" fill="${d.total > 0 ? "var(--primary)" : "var(--border)"}" opacity="${d.total > 0 ? 0.9 : 0.35}">
             <title>Ziua ${d.day}: ${formatMoney(d.total, baseCur)}</title>
           </rect>
