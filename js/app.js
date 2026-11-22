@@ -20,6 +20,7 @@ let txAccountFilter = "all";
 let txDayFilter = "";
 let txWeekdayFilter = ""; // weekday index (as in insights) within the selected month
 let txNote = ""; // short banner text for card drilldowns
+let txNetExpenseFilter = false;
 let txBalanceFilter = false; // net balance drill: only income + expenses (no transfers/investments/adjustments)
 let txExceptionFilter = false; // rows without a verified base-currency equivalent (excluded from totals)
 let txForeignFilter = false; // transactions in a currency other than the base currency
@@ -29,6 +30,7 @@ function resetTxFilters() {
   txAllMonths = false;
   txNote = "";
   txBalanceFilter = false;
+  txNetExpenseFilter = false;
   txForeignFilter = false;
   txExceptionFilter = false;
   txWeekdayFilter = "";
@@ -260,6 +262,7 @@ function bindGlobalEvents() {
       resetTxFilters();
       if (insDrill.dataset.insightDrill === "weekday") { txTypeFilter = "cheltuiala"; txWeekdayFilter = insDrill.dataset.insightIndex; }
       else if (insDrill.dataset.insightDrill === "shared") { store.setScope("shared"); }
+      else if (insDrill.dataset.insightDrill === "net-expenses") { txNetExpenseFilter = true; txNote = "Cheltuieli nete: cheltuieli minus rambursări (fără transferuri și ajustări)"; }
       else if (insDrill.dataset.insightDrill === "balance") { txBalanceFilter = true; txNote = "⚖️ Venituri și cheltuieli (fără transferuri, investiții și ajustări)"; }
       else if (insDrill.dataset.insightDrill === "exception") { txExceptionFilter = true; txNote = "💱 Fără echivalent verificat în moneda de bază: nu intră în totaluri"; }
       else if (insDrill.dataset.insightDrill === "foreign") { txForeignFilter = true; txNote = "💱 Tranzacții în alte valute decât moneda de bază"; }
@@ -501,13 +504,19 @@ function renderDashboard() {
 
     <section class="card hero-card">
       <div class="hero-top">
-        <div>
-          <div class="hero-label">Cheltuieli nete (${MONTHS_RO[s.selectedMonth]})</div>
+        <div class="hero-label">${MONTHS_RO[s.selectedMonth]} ${s.selectedYear}</div>
+        <div class="hero-label hero-count">${a.count} ${a.count === 1 ? "tranzacție" : "tranzacții"}${a.ledger && a.ledger.exceptionRows && a.ledger.exceptionRows.length ? ` (din care ${a.ledger.exceptionRows.length} fără echivalent, neincluse în sumă)` : ""}</div>
+      </div>
+      <div class="hero-figures">
+        <div class="hero-metric tappable" data-insight-drill="net-expenses" role="button" tabindex="0" aria-label="Raport cheltuieli nete pentru ${MONTHS_RO[s.selectedMonth]}">
+          <div class="hero-label">Cheltuieli nete</div>
           <div class="hero-amount">${formatMoney(a.total, a.baseCur)}</div>
           <span class="hero-delta">${deltaText}</span>
         </div>
-        <div style="text-align:right">
-          <div class="hero-label">${a.count} ${a.count === 1 ? "tranzacție" : "tranzacții"}${a.ledger && a.ledger.exceptionRows && a.ledger.exceptionRows.length ? ` (din care ${a.ledger.exceptionRows.length} fără echivalent, neincluse în sumă)` : ""}</div>
+        <div class="hero-metric tappable" data-insight-drill="balance" role="button" tabindex="0" aria-label="Raport balanță netă pentru ${MONTHS_RO[s.selectedMonth]}">
+          <div class="hero-label">Balanță netă</div>
+          <div class="hero-amount">${a.ledger.balantaNeta >= 0 ? "+" : ""}${formatMoney(a.ledger.balantaNeta, a.baseCur)}</div>
+          <div class="hero-caption">Venituri − cheltuieli</div>
         </div>
       </div>
 
@@ -527,10 +536,6 @@ function renderDashboard() {
         <div>
           <div class="hero-stat-label">Venituri</div>
           <div class="hero-stat-val">${formatMoney(a.ledger.venituri, a.baseCur)}</div>
-        </div>
-        <div>
-          <div class="hero-stat-label">Balanță netă</div>
-          <div class="hero-stat-val">${a.ledger.balantaNeta >= 0 ? "+" : ""}${formatMoney(a.ledger.balantaNeta, a.baseCur)}</div>
         </div>
         <div>
           <div class="hero-stat-label">Medie / zi</div>
@@ -721,6 +726,7 @@ function renderTransactions() {
   if (txWeekdayFilter !== "") {
     list = list.filter((e) => { const p = String(e.date).split("-").map(Number); return p.length === 3 && new Date(p[0], p[1] - 1, p[2]).getDay() === Number(txWeekdayFilter) || false; });
   }
+  if (txNetExpenseFilter) list = list.filter(e => (e.type || "cheltuiala") === "cheltuiala" || ((e.type || "") === "venit" && e.category === "rambursari"));
   if (txBalanceFilter) {
     list = list.filter((e) => { const t = e.type || "cheltuiala"; return t === "cheltuiala" || t === "venit"; });
   }
