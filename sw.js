@@ -1,4 +1,4 @@
-const BUILD_ID = "2026-11-22.7"; // bump on every release (release script/test replaces this)
+const BUILD_ID = "2026-11-22.8"; // bump on every release (release script/test replaces this)
 const CACHE_NAME = "buget-familie-" + BUILD_ID;
 const ASSETS = [
   "./", "./index.html", "./manifest.json", "./icons/icon.svg", "./css/styles.css",
@@ -12,7 +12,13 @@ const ASSETS = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
-      Promise.all(ASSETS.map((u) => cache.add(new Request(u, { cache: "reload" }))))
+      // Cache-busting query (?v=BUILD_ID) so the CDN cannot hand back stale bytes from an earlier build; stored under the plain URL.
+      Promise.all(ASSETS.map(async (u) => {
+        const bust = u + (u.includes("?") ? "&" : "?") + "v=" + BUILD_ID;
+        const res = await fetch(bust, { cache: "reload" });
+        if (!res.ok) throw new Error("asset " + u + " HTTP " + res.status);
+        await cache.put(new Request(u), res);
+      }))
     )
   );
   // No skipWaiting here: the new version waits until the user taps "Actualizează" (no reload under pending edits).
