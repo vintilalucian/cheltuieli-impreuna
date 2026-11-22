@@ -330,10 +330,15 @@ export function computeAccountBalances(accounts, transactions, currencies = [], 
     } else if (r.type === "transfer" || r.type === "investitie") {
       if (a) apply(a, r, -inAccCurrency(r, a, amt));
       if (b) {
-        const inAmt = (r.toAmount !== null && r.toAmount !== undefined && r.toAmount > 0)
-          ? r.toAmount
-          : inAccCurrency(r, b, amt);
-        apply(b, r, inAmt);
+        const hasDest = r.toAmount !== null && r.toAmount !== undefined && r.toAmount > 0;
+        if (!hasDest && /^tb-/.test(String(r.source || "")) && b.currency && r.currency && b.currency !== r.currency) {
+          // Imported source transfer, currencies differ, destination amount not shown by the source: do not invent a conversion
+          // (manual rows keep the documented v4 contract: empty destination amount = conversion at the rate).
+          b.unconvertedIn = (b.unconvertedIn || 0) + 1;
+        } else {
+          if (!hasDest && b.currency && r.currency && b.currency !== r.currency) b.estimatedIn = (b.estimatedIn || 0) + 1; // manual row: converted at the Valute rate, shown as estimate
+          apply(b, r, hasDest ? r.toAmount : inAccCurrency(r, b, amt));
+        }
       }
     }
   });
@@ -368,7 +373,27 @@ export function computeAccountBalances(accounts, transactions, currencies = [], 
  * Calculează sumarul contabil v4 (venituri, cheltuieli brute/nete, rambursări, transferuri, investiții, ajustări)
  * strict pe baza tipului explicit, fără ghicire după semn.
  */
-export function computeLedgerSummary(transactions) {
+/**
+ * Status of the base-currency (EUR) equivalent of a row.
+ * "base": row is in the base currency. "source": non-base row that carries an explicit equivalent
+ * imported from TimelyBills (Sursă "tb-..."), with a coherent rate. "unverified": anything else,
+ * never counted in base totals (no fallback to the Valute table rate).
+ */
+export function baseEquivalentStatus(tx, baseCurrency) {
+  const cur = String((tx && tx.currency) || baseCurrency || "").toUpperCase();
+  const base = String(baseCurrency || "").toUpperCase();
+  if (!base || !cur || cur === base) return "base";
+  const src = String((tx && (tx.source || tx.clientOpId || tx.sourceIdentity)) || "");
+  const b = Number(tx && tx.baseAmount), a = Number(tx && tx.amount), r = Number(tx && tx.rate);
+  // A source prefix alone proves nothing: the equivalent must be explicit, positive, in a valid
+  // currency code, and amount x rate must reproduce it (same tolerance as the integrity check).
+  const okNums = Number.isFinite(b) && b > 0 && Number.isFinite(a) && a > 0 && Number.isFinite(r) && r > 0;
+  if (/^tb-/.test(src) && /^[A-Z]{3}$/.test(cur) && okNums && !checkBaseAmountConsistency(a, r, b).mismatch) return "source";
+  return "unverified";
+}
+
+export function computeLedgerSummary(transactions, opts = {}) {
+  const exceptionRows = [];
   let venituri = 0;
   let cheltuieliBrute = 0;
   let rambursariComerciant = 0;
@@ -385,6 +410,10 @@ export function computeLedgerSummary(transactions) {
       return;
     }
     const tx = normalizeTx(rawTx);
+    if (opts.baseCurrency && tx.type !== "ajustare" && baseEquivalentStatus(tx, opts.baseCurrency) === "unverified") {
+      exceptionRows.push(tx);
+      return;
+    }
     if (v.baseMismatch) {
       mismatchRows.push({ tx, warnings: v.warnings });
     }
@@ -430,6 +459,7 @@ export function computeLedgerSummary(transactions) {
     investitiiVolum: round2(investitiiVolum),
     ajustariCount,
     invalidRows,
-    mismatchRows
+    mismatchRows,
+    exceptionRows
   };
 }
