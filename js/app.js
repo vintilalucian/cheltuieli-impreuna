@@ -18,10 +18,18 @@ let txTypeFilter = "all";
 let txCategoryFilter = "all";
 let txAccountFilter = "all";
 let txDayFilter = "";
+let txWeekdayFilter = ""; // weekday index (as in insights) within the selected month
+let txNote = ""; // short banner text for card drilldowns
+let txBalanceFilter = false; // net balance drill: only income + expenses (no transfers/investments/adjustments)
+let txForeignFilter = false; // transactions in a currency other than the base currency
 let txAllMonths = false; // category opened from a detail view: all months, newest first, grouped by month
 
 function resetTxFilters() {
   txAllMonths = false;
+  txNote = "";
+  txBalanceFilter = false;
+  txForeignFilter = false;
+  txWeekdayFilter = "";
   txTypeFilter = "all";
   txCategoryFilter = "all";
   txAccountFilter = "all";
@@ -163,7 +171,7 @@ function initApp() {
 function bindGlobalEvents() {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
-    const el = e.target.closest && e.target.closest('[role="button"][data-open-account], [role="button"][data-chart-category], [role="button"][data-view-expense]');
+    const el = e.target.closest && e.target.closest('[role="button"][data-open-account], [role="button"][data-chart-category], [role="button"][data-view-expense], [role="button"][data-insight-drill], [role="button"][data-open-category]');
     if (el) { e.preventDefault(); el.click(); }
   });
 
@@ -245,6 +253,25 @@ function bindGlobalEvents() {
     if (e.target.closest("#btn-sync")) { handleManualSync(); return; }
     if (e.target.closest("#fab-add")) { openExpenseModal(null); return; }
 
+    const insDrill = e.target.closest("[data-insight-drill]");
+    if (insDrill) {
+      resetTxFilters();
+      if (insDrill.dataset.insightDrill === "weekday") { txTypeFilter = "cheltuiala"; txWeekdayFilter = insDrill.dataset.insightIndex; }
+      else if (insDrill.dataset.insightDrill === "shared") { store.setScope("shared"); }
+      else if (insDrill.dataset.insightDrill === "balance") { txBalanceFilter = true; txNote = "⚖️ Venituri și cheltuieli (fără transferuri, investiții și ajustări)"; }
+      else if (insDrill.dataset.insightDrill === "foreign") { txForeignFilter = true; txNote = "💱 Tranzacții în alte valute decât moneda de bază"; }
+      else if (insDrill.dataset.insightDrill === "type") { txTypeFilter = insDrill.dataset.insightIndex; txNote = "📌 Tip: " + ((TX_TYPES[txTypeFilter] || {}).label || txTypeFilter); }
+      else if (insDrill.dataset.insightDrill === "category") { txTypeFilter = "cheltuiala"; txCategoryFilter = insDrill.dataset.insightIndex; }
+      currentView = "transactions"; render(); window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const openCat = e.target.closest("[data-open-category]");
+    if (openCat) {
+      resetTxFilters();
+      txCategoryFilter = openCat.dataset.openCategory; txAllMonths = true;
+      currentView = "transactions"; render(); window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     const detailEdit = e.target.closest("[data-detail-edit]");
     if (detailEdit) { openExpenseModal(detailEdit.dataset.detailEdit); return; }
     const detailCat = e.target.closest("[data-detail-category]");
@@ -551,7 +578,7 @@ function renderDashboard() {
         </div>
         <div class="insights-list">
           ${a.insights.slice(0, 2).map((ins) => `
-            <div class="insight-item ${ins.type}">
+            <div class="insight-item ${ins.type}${ins.drill ? " tappable" : ""}" ${ins.drill ? `data-insight-drill="${esc(ins.drill.kind)}" data-insight-index="${esc(ins.drill.index === undefined ? "" : ins.drill.index)}" role="button" tabindex="0"` : ""}>
               <div class="insight-icon">${ins.icon}</div>
               <div>
                 <div class="insight-title">${esc(ins.title)}</div>
@@ -662,6 +689,15 @@ function renderTransactions() {
   if (txDayFilter) {
     list = list.filter((e) => e.date === txDayFilter);
   }
+  if (txWeekdayFilter !== "") {
+    list = list.filter((e) => { const p = String(e.date).split("-").map(Number); return p.length === 3 && new Date(p[0], p[1] - 1, p[2]).getDay() === Number(txWeekdayFilter) || false; });
+  }
+  if (txBalanceFilter) {
+    list = list.filter((e) => { const t = e.type || "cheltuiala"; return t === "cheltuiala" || t === "venit"; });
+  }
+  if (txForeignFilter) {
+    list = list.filter((e) => (e.currency || e.valuta || baseCur) !== baseCur);
+  }
   if (txTypeFilter !== "all") {
     list = list.filter((e) => (e.type || "cheltuiala") === txTypeFilter);
   }
@@ -679,7 +715,7 @@ function renderTransactions() {
   }
 
   let activeFilterBar = "";
-  if (byAccount || txDayFilter || txCategoryFilter !== "all") {
+  if (byAccount || txDayFilter || txWeekdayFilter !== "" || txCategoryFilter !== "all" || txNote) {
     const parts = [];
     if (byAccount) {
       const accBal = computeAccountBalances(s.accounts || [], store.getVisibleExpenses({ scope: "all" }), s.currencies || [], baseCur, store.getActiveEmail())
@@ -688,6 +724,8 @@ function renderTransactions() {
       parts.push(`🏦 Cont: <strong>${esc(accName)}</strong>${accBal && accBal.visible !== false ? ` • Sold ${formatMoney(accBal.balance, accBal.currency)}` : ""} • toate lunile`);
     }
     if (txCategoryFilter !== "all") parts.push(`🏷️ Categorie: <strong>${esc(store.getCategory(txCategoryFilter).name)}</strong> • ${txAllMonths ? "toate lunile" : MONTHS_RO[s.selectedMonth] + " " + s.selectedYear}`);
+    if (txWeekdayFilter !== "") parts.push(`📅 Zilele de ${esc(["duminică","luni","marți","miercuri","joi","vineri","sâmbătă"][Number(txWeekdayFilter)])} • ${MONTHS_RO[s.selectedMonth]} ${s.selectedYear}`);
+    if (txNote) parts.push(`${esc(txNote)} • ${MONTHS_RO[s.selectedMonth]} ${s.selectedYear}${s.scope === "shared" ? " • doar comune" : ""}`);
     if (txDayFilter) parts.push(`📅 Ziua: <strong>${esc(txDayFilter)}</strong>`);
     activeFilterBar = `
       <div class="banner">
@@ -754,7 +792,7 @@ function renderAnalytics() {
       </div>
       <div class="insights-list">
         ${a.insights.map((ins) => `
-          <div class="insight-item ${ins.type}">
+          <div class="insight-item ${ins.type}${ins.drill ? " tappable" : ""}" ${ins.drill ? `data-insight-drill="${esc(ins.drill.kind)}" data-insight-index="${esc(ins.drill.index === undefined ? "" : ins.drill.index)}" role="button" tabindex="0"` : ""}>
             <div class="insight-icon">${ins.icon}</div>
             <div>
               <div class="insight-title">${esc(ins.title)}</div>
@@ -847,7 +885,7 @@ function renderCatalog() {
       <div class="item-grid">
         ${s.categories.map((c) => `
           <div class="mini-card">
-            <div class="mini-left">
+            <div class="mini-left tappable" data-open-category="${esc(c.id)}" role="button" tabindex="0" aria-label="Tranzacții ${esc(c.name)}">
               <div class="mini-icon" style="background:${c.color}20; color:${c.color}">${c.emoji || c.icon}</div>
               <div>
                 <div style="font-weight:700; font-size:0.86rem">${esc(c.name)} ${c.active === false ? "(Inactivă)" : ""}</div>
@@ -1392,7 +1430,7 @@ function openExpenseModal(expenseId) {
         <div class="form-grid cols-2">
           <div class="field">
             <label id="exp-amount-label">Sumă</label>
-            <input class="input" id="exp-amount" type="number" step="0.01" placeholder="0.00" value="${exp ? exp.amount : ""}" ${isOwner ? "required" : "disabled"}>
+            <input class="input" id="exp-amount" type="number" inputmode="decimal" step="0.01" placeholder="0.00" value="${exp ? exp.amount : ""}" ${isOwner ? "required" : "disabled"}>
           </div>
           <div class="field">
             <label>Valută</label>
@@ -1494,6 +1532,7 @@ function openExpenseModal(expenseId) {
     </div>
   `;
   modal.classList.add("open");
+  if (!exp) { const a0 = $("#exp-amount"); if (a0) a0.focus(); } // new record: amount focused right away
 
   const typeEl = $("#exp-type");
   const amtEl = $("#exp-amount");
