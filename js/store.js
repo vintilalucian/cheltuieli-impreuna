@@ -598,13 +598,14 @@ export class Store {
     }
   }
 
-  async saveCategories(categories) {
+  async saveCategories(categories, { categoryDraftId } = {}) {
     this.state.categories = categories;
     this.emit();
     if (this.isConnected()) {
       await this.enqueueAndFlush({
         type: "saveCategories",
         categories,
+        categoryDraftId,
         expectedVersion: this.state.tableVersions.categories
       });
     }
