@@ -272,7 +272,45 @@ export function createTransferRecord({
  * - Un cont cu `owner` gol este tratat ca `comun`.
  * - Dacă `viewerEmail` este furnizat, setează `visible = owner === 'comun' || owner === viewerEmail`.
  */
-export function computeAccountBalances(accounts, transactions, currencies = [], baseCurrency = "RON", viewerEmail = null) {
+const RECONCILIATION_PREFIX = "tb-reconcile-v1:";
+
+function reconciliationScope(transactions, accountId, at, excludeId = "") {
+  return (transactions || []).filter((raw) => {
+    if (!validateTransaction(raw).valid) return false;
+    const r = normalizeTx(raw);
+    return r.id !== excludeId && (r.account === accountId || r.toAccount === accountId) && (!r.created || r.created <= at);
+  });
+}
+
+function reconciliationFingerprint(account, transactions) {
+  // Detect changes to the native movement used by the reconciliation. This is a
+  // consistency checksum, not authentication or a cryptographic signature.
+  const rows = transactions.map(normalizeTx).map(r => [r.id, r.date, r.type, Number(r.amount), r.currency, Number(r.rate), r.account, r.toAccount, r.toAmount, r.source]).sort((a,b) => String(a[0]).localeCompare(String(b[0])));
+  const text = JSON.stringify([account.id, account.currency, Number(account.initialBalance) || 0, account.initialDate || "", rows]);
+  let h = 2166136261;
+  for (let i=0;i<text.length;i++) { h ^= text.charCodeAt(i); h = Math.imul(h,16777619); }
+  return (h >>> 0).toString(16).padStart(8,"0");
+}
+
+function readReconciliation(r) {
+  if (r.type !== "ajustare" || !String(r.source || "").startsWith(RECONCILIATION_PREFIX)) return null;
+  try {
+    const m = JSON.parse(r.source.slice(RECONCILIATION_PREFIX.length));
+    if (m.account !== r.account || m.currency !== r.currency || !Number.isFinite(m.target) || !Number.isFinite(m.before) || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(m.at) || r.created !== m.at || r.date !== m.at.slice(0,10) || !/^[0-9a-f]{8}$/.test(m.fingerprint)) return null;
+    return m;
+  } catch { return null; }
+}
+
+// Build the source metadata only from a freshly checked account and target.
+// Callers still own source verification and permission to append the adjustment.
+export function buildReconciliationSource(account, transactions, currencies, baseCurrency, target, at) {
+  if (!Number.isFinite(target) || !Number.isFinite(Date.parse(at))) throw new Error("Invalid reconciliation target/time");
+  const scope = reconciliationScope(transactions, account.id, at);
+  const before = computeAccountBalances([account], scope, currencies, baseCurrency, null, {skipReconciliation:true})[0].balance;
+  return RECONCILIATION_PREFIX + JSON.stringify({account:account.id,currency:account.currency,target:round2(target),before,at,fingerprint:reconciliationFingerprint(account,scope)});
+}
+
+export function computeAccountBalances(accounts, transactions, currencies = [], baseCurrency = "RON", viewerEmail = null, options = {}) {
   const rates = {};
   (currencies || []).forEach((c) => {
     if (c && c.code) rates[String(c.code).toUpperCase()] = Number(c.rate) || 1;
@@ -342,6 +380,43 @@ export function computeAccountBalances(accounts, transactions, currencies = [], 
       }
     }
   });
+
+  if (!options.skipReconciliation) {
+    for (const acc of map.values()) {
+      const candidates = [];
+      for (const r of (transactions || []).map(normalizeTx)) {
+        if (!validateTransaction(r).valid) continue;
+        const m = readReconciliation(r);
+        if (!m) continue;
+        if (r.account === acc.id && r.currency === acc.currency) candidates.push({r,m,delta:Number(r.amount)});
+        // A verified zero-delta snapshot has no movement row. Its audit metadata
+        // rides on an actual nonzero adjustment from the same reconciliation run.
+        for (const z of (Array.isArray(m.zeroSnapshots) ? m.zeroSnapshots : [])) {
+          if (z.account === acc.id && z.currency === acc.currency && z.at === m.at && Number.isFinite(z.target) && z.before === z.target && /^[0-9a-f]{8}$/.test(z.fingerprint)) candidates.push({r,m:z,delta:0});
+        }
+      }
+      candidates.sort((a,b) => b.m.at.localeCompare(a.m.at));
+      if (!candidates.length) continue;
+      const {r,m,delta} = candidates[0];
+      const scope = reconciliationScope(transactions, acc.id, m.at, r.id);
+      const before = computeAccountBalances([acc], scope, currencies, baseCurrency, null, {skipReconciliation:true})[0].balance;
+      if (reconciliationFingerprint(acc,scope) === m.fingerprint && Math.abs(before-m.before)<0.005 && Math.abs(round2(before + delta)-m.target)<0.005) {
+        acc.balanceKnown = true;
+        acc.reconciledAt = m.at;
+        acc.reconciliationTarget = m.target;
+        const later = (transactions || []).map(normalizeTx).filter(t => t.id !== r.id && t.created && t.created > m.at && t.toAccount === acc.id && t.currency !== acc.currency && !(Number(t.toAmount)>0));
+        const unknownLater = later.filter(t => /^tb-/.test(String(t.source || "")) && (t.type === "transfer" || t.type === "investitie"));
+        if (unknownLater.length) {
+          acc.balanceKnown = false;
+          acc.reconciliationWarning = `${unknownLater.length} intrări ulterioare fără sumă destinație; soldul actual trebuie reverificat.`;
+        }
+        acc.balanceEstimated = later.some(t => !/^tb-/.test(String(t.source || "")) && (t.type === "transfer" || t.type === "investitie"));
+      } else {
+        acc.reconciliationWarning = "Istoricul folosit la reconciliere s-a schimbat; soldul trebuie reverificat.";
+        acc.balanceKnown = false;
+      }
+    }
+  }
 
   const me = viewerEmail ? String(viewerEmail).trim().toLowerCase() : null;
   return Array.from(map.values()).map((acc) => {
