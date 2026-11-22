@@ -7,7 +7,7 @@ import {
 } from "./defaults.js";
 import { store } from "./store.js";
 import { computeMonthlyAnalytics, formatMoney } from "./insights.js";
-import { computeAccountBalances, normalizeAccountOwner } from "./ledger.js";
+import { computeAccountBalances, normalizeAccountOwner, baseEquivalentStatus } from "./ledger.js";
 import { renderDonutChart, renderMonthlyTrendChart, renderDailyBarsChart } from "./charts.js";
 import { exportToExcel, previewImportFile } from "./excel.js";
 import { encodeSetupCode, decodeSetupCode, buildTransferLink } from "./sheets-api.js";
@@ -21,6 +21,7 @@ let txDayFilter = "";
 let txWeekdayFilter = ""; // weekday index (as in insights) within the selected month
 let txNote = ""; // short banner text for card drilldowns
 let txBalanceFilter = false; // net balance drill: only income + expenses (no transfers/investments/adjustments)
+let txExceptionFilter = false; // rows without a verified base-currency equivalent (excluded from totals)
 let txForeignFilter = false; // transactions in a currency other than the base currency
 let txAllMonths = false; // category opened from a detail view: all months, newest first, grouped by month
 
@@ -29,6 +30,7 @@ function resetTxFilters() {
   txNote = "";
   txBalanceFilter = false;
   txForeignFilter = false;
+  txExceptionFilter = false;
   txWeekdayFilter = "";
   txTypeFilter = "all";
   txCategoryFilter = "all";
@@ -259,6 +261,7 @@ function bindGlobalEvents() {
       if (insDrill.dataset.insightDrill === "weekday") { txTypeFilter = "cheltuiala"; txWeekdayFilter = insDrill.dataset.insightIndex; }
       else if (insDrill.dataset.insightDrill === "shared") { store.setScope("shared"); }
       else if (insDrill.dataset.insightDrill === "balance") { txBalanceFilter = true; txNote = "⚖️ Venituri și cheltuieli (fără transferuri, investiții și ajustări)"; }
+      else if (insDrill.dataset.insightDrill === "exception") { txExceptionFilter = true; txNote = "💱 Fără echivalent verificat în moneda de bază: nu intră în totaluri"; }
       else if (insDrill.dataset.insightDrill === "foreign") { txForeignFilter = true; txNote = "💱 Tranzacții în alte valute decât moneda de bază"; }
       else if (insDrill.dataset.insightDrill === "type") { txTypeFilter = insDrill.dataset.insightIndex; txNote = "📌 Tip: " + ((TX_TYPES[txTypeFilter] || {}).label || txTypeFilter); }
       else if (insDrill.dataset.insightDrill === "category") { txTypeFilter = "cheltuiala"; txCategoryFilter = insDrill.dataset.insightIndex; }
@@ -503,7 +506,7 @@ function renderDashboard() {
           <span class="hero-delta">${deltaText}</span>
         </div>
         <div style="text-align:right">
-          <div class="hero-label">${a.count} ${a.count === 1 ? "tranzacție" : "tranzacții"}</div>
+          <div class="hero-label">${a.count} ${a.count === 1 ? "tranzacție" : "tranzacții"}${a.ledger && a.ledger.exceptionRows && a.ledger.exceptionRows.length ? ` (din care ${a.ledger.exceptionRows.length} fără echivalent, neincluse în sumă)` : ""}</div>
         </div>
       </div>
 
@@ -555,10 +558,11 @@ function renderDashboard() {
               <div>
                 <div style="font-weight:700; font-size:0.86rem">${esc(acc.name)}</div>
                 <div class="card-sub">${esc(accOwnerLabel(acc.owner))} • ${esc(acc.type)}${acc.initialDate ? ` • din ${esc(acc.initialDate)}` : ""}${acc.includeInAvailable === false ? " • Rezervat" : ""}</div>
+                ${acc.visible !== false && acc.balanceKnown === false ? `<div class="card-sub" style="font-size:.78em;line-height:1.3;margin-top:2px">sold necunoscut • mișcări înreg.: ${formatMoney(acc.balance, acc.currency)} (nu este sold)${acc.unconvertedIn ? ` • +${acc.unconvertedIn} intrări fără sumă` : ""}</div>` : ""}
               </div>
             </div>
             <div style="text-align:right; font-weight:800; font-size:0.88rem; color:${acc.visible === false ? "var(--text-muted)" : (acc.balance < 0 ? "var(--danger)" : "var(--text)")}">
-              ${acc.visible === false ? "🔒 Personal" : (acc.balanceKnown === false ? `<span class="card-sub" style="font-weight:600">Mișcări ${formatMoney(acc.balance, acc.currency)}<br>sold necunoscut</span>` : formatMoney(acc.balance, acc.currency))}
+              ${acc.visible === false ? "🔒 Personal" : (acc.balanceKnown === false ? "" : formatMoney(acc.balance, acc.currency) + (acc.unconvertedIn ? `<br><span class="card-sub" style="white-space:nowrap;font-size:.8em">+${acc.unconvertedIn} intrări fără sumă</span>` : "") + (acc.estimatedIn ? `<br><span class="card-sub" style="white-space:nowrap;font-size:.8em">include ${acc.estimatedIn} estimate la curs</span>` : ""))}
             </div>
           </div>
         `).join("")}
@@ -653,6 +657,7 @@ function renderTxRow(exp, baseCur) {
   const toAcc = (exp.toAccount || exp.destAccountId) ? store.getAccount(exp.toAccount || exp.destAccountId) : null;
   const showOrig = exp.currency && exp.currency !== baseCur;
   const isPositiveFlow = type === "venit" || (type === "ajustare" && Number(exp.amount) > 0);
+  const noEq = type !== "ajustare" && !store.state.isDemoMode && baseEquivalentStatus({ ...exp, currency: exp.currency || exp.valuta || (store.state.settings.baseCurrency || "RON") }, store.state.settings.baseCurrency || "RON") === "unverified";
   const titleText = exp.description || exp.title || exp.merchant || typeMeta.label;
   const iconBg = cat && type === "cheltuiala" ? `${cat.color}20` : "var(--primary-soft)";
   const iconCol = cat && type === "cheltuiala" ? cat.color : "var(--primary)";
@@ -684,9 +689,9 @@ function renderTxRow(exp, baseCur) {
       </div>
       <div class="tx-right">
         <div class="tx-amount" style="color:${isPositiveFlow ? "var(--success)" : "var(--text)"}">
-          ${isPositiveFlow ? "+" : ""}${formatMoney(exp.baseAmount, baseCur)}
+          ${noEq ? `${isPositiveFlow ? "+" : ""}${formatMoney(exp.amount, exp.currency)}` : `${isPositiveFlow ? "+" : ""}${formatMoney(exp.baseAmount, baseCur)}`}
         </div>
-        ${(showOrig || toAmtText) ? `<div class="tx-orig">${formatMoney(exp.amount, exp.currency)}${esc(toAmtText)}</div>` : ""}
+        ${noEq ? `<div class="tx-orig">fără echivalent ${esc(baseCur)} verificat</div>` : (showOrig || toAmtText) ? `<div class="tx-orig">${formatMoney(exp.amount, exp.currency)}${esc(toAmtText)}</div>` : ""}
       </div>
     </div>
   `;
@@ -716,6 +721,9 @@ function renderTransactions() {
   }
   if (txBalanceFilter) {
     list = list.filter((e) => { const t = e.type || "cheltuiala"; return t === "cheltuiala" || t === "venit"; });
+  }
+  if (txExceptionFilter) {
+    list = list.filter((e) => (e.type || "cheltuiala") !== "ajustare" && !store.state.isDemoMode && baseEquivalentStatus({ ...e, currency: e.currency || e.valuta || baseCur }, baseCur) === "unverified");
   }
   if (txForeignFilter) {
     list = list.filter((e) => (e.currency || e.valuta || baseCur) !== baseCur);
@@ -886,7 +894,7 @@ function renderCatalog() {
                 <div class="card-sub">
                   ${acc.visible === false
                     ? `🔒 Personal (${esc(store.getPartnerName(acc.owner))})`
-                    : (acc.balanceKnown === false ? `Mișcări: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • sold inițial necunoscut` : `Sold: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • Inițial: ${acc.initialBalance}${acc.initialDate ? ` (${esc(acc.initialDate)})` : ""}`) + ` • ${esc(accOwnerLabel(acc.owner))}`}
+                    : (acc.balanceKnown === false ? `Mișcări: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • sold inițial necunoscut${acc.unconvertedIn ? ` • ${acc.unconvertedIn} transfer(uri) primite fără sumă destinație, neconvertite` : ""}` : `Sold: <strong>${formatMoney(acc.balance, acc.currency)}</strong>${acc.estimatedIn ? ` • include ${acc.estimatedIn} transfer(uri) estimate la curs` : ""}${acc.unconvertedIn ? ` • ${acc.unconvertedIn} transfer(uri) primite fără sumă destinație, neconvertite` : ""} • Inițial: ${acc.initialBalance}${acc.initialDate ? ` (${esc(acc.initialDate)})` : ""}`) + ` • ${esc(accOwnerLabel(acc.owner))}`}
                 </div>
               </div>
             </div>
