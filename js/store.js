@@ -53,7 +53,7 @@ function detectTheme() {
 }
 
 function defaultTableVersions() {
-  return { accounts: 1, categories: 1, currencies: 1, settings: 1 };
+  return { accounts: 1, categories: 1, currencies: 1, settings: 1, merchants: 1 };
 }
 
 function createInitialState() {
@@ -475,11 +475,11 @@ export class Store {
     return transfer;
   }
 
-  async updateExpense(id, updates) {
+  async updateExpense(id, updates, expectedVersion = null) {
     const idx = this.state.expenses.findIndex((e) => e.id === id);
     if (idx === -1) return null;
     const existing = this.state.expenses[idx];
-    const expectedModified = existing.modified || existing.updatedAt || "";
+    const expectedModified = expectedVersion ?? existing.modified ?? existing.updatedAt ?? "";
     const currency = String(updates.currency || existing.currency).toUpperCase();
     const amount = Number(updates.amount ?? existing.amount);
     const rawRate = updates.rate !== undefined && updates.rate !== ""
@@ -530,7 +530,7 @@ export class Store {
     return updated;
   }
 
-  async deleteExpense(id) {
+  async deleteExpense(id, expectedVersion = null) {
     const existing = this.state.expenses.find((e) => e.id === id);
     if (!existing) return;
 
@@ -541,7 +541,7 @@ export class Store {
       await this.enqueueAndFlush({
         type: "deleteExpense",
         id: existing.id,
-        expectedUpdatedAt: existing.modified || existing.updatedAt || ""
+        expectedUpdatedAt: expectedVersion ?? existing.modified ?? existing.updatedAt ?? ""
       });
     }
   }
@@ -574,56 +574,56 @@ export class Store {
     return toInsert.length;
   }
 
-  async saveAccounts(accounts) {
+  async saveAccounts(accounts, expectedVersion = this.state.tableVersions.accounts) {
     this.state.accounts = accounts;
     this.emit();
     if (this.isConnected()) {
-      await this.enqueueAndFlush({
+      await this.enqueueTableAndFlush({
         type: "saveAccounts",
         accounts,
-        expectedVersion: this.state.tableVersions.accounts
+        expectedVersion
       });
     }
   }
 
   /** Salvează UN cont (upsert pe rând, server-side). Nu rescrie tabul Conturi și nu poate pierde conturi adăugate în altă parte. */
-  async saveAccount(entry) {
+  async saveAccount(entry, expectedVersion = this.state.tableVersions.accounts) {
     const i = this.state.accounts.findIndex((a) => a.id === entry.id);
     this.state.accounts = i >= 0
       ? this.state.accounts.map((a) => (a.id === entry.id ? entry : a))
       : [...this.state.accounts, entry];
     this.emit();
     if (this.isConnected()) {
-      await this.enqueueAndFlush({ type: "saveAccount", account: entry });
+      await this.enqueueTableAndFlush({ type: "saveAccount", account: entry, expectedVersion });
     }
   }
 
-  async saveCategories(categories, { categoryDraftId } = {}) {
+  async saveCategories(categories, { categoryDraftId, expectedVersion = this.state.tableVersions.categories } = {}) {
     this.state.categories = categories;
     this.emit();
     if (this.isConnected()) {
-      await this.enqueueAndFlush({
+      await this.enqueueTableAndFlush({
         type: "saveCategories",
         categories,
         categoryDraftId,
-        expectedVersion: this.state.tableVersions.categories
+        expectedVersion
       });
     }
   }
 
-  async saveCurrencies(currencies) {
+  async saveCurrencies(currencies, expectedVersion = this.state.tableVersions.currencies) {
     this.state.currencies = currencies;
     this.emit();
     if (this.isConnected()) {
-      await this.enqueueAndFlush({
+      await this.enqueueTableAndFlush({
         type: "saveCurrencies",
         currencies,
-        expectedVersion: this.state.tableVersions.currencies
+        expectedVersion
       });
     }
   }
 
-  async saveMerchant(merchant) {
+  async saveMerchant(merchant, expectedVersion = this.state.tableVersions.merchants) {
     const name = String(merchant?.name || "").trim();
     if (!name) throw new Error("Comerciantul are nevoie de un nume.");
     const oldName = merchant.oldName || name;
@@ -634,38 +634,49 @@ export class Store {
     this.state.merchants = [...rest, { name, category }].sort((a, b) => a.name.localeCompare(b.name, "ro"));
     this.emit();
     if (this.isConnected()) {
-      await this.enqueueAndFlush({ type: "saveMerchant", merchant: { name, oldName, category } });
+      await this.enqueueTableAndFlush({ type: "saveMerchant", merchant: { name, oldName, category }, expectedVersion });
     }
   }
 
-  async deleteMerchant(name) {
+  async deleteMerchant(name, expectedVersion = this.state.tableVersions.merchants) {
     this.state.merchants = (this.state.merchants || []).filter(
       (m) => m.name.toLowerCase() !== String(name || "").toLowerCase()
     );
     this.emit();
     if (this.isConnected()) {
-      await this.enqueueAndFlush({ type: "deleteMerchant", name });
+      await this.enqueueTableAndFlush({ type: "deleteMerchant", name, expectedVersion });
     }
   }
 
-  async saveSettings(newSettings) {
+  async saveSettings(newSettings, expectedVersion = this.state.tableVersions.settings) {
     this.state.settings = { ...this.state.settings, ...newSettings };
     if (this.state.members[0]) {
       if (newSettings.partner1Name) this.state.members[0].name = newSettings.partner1Name;
-      if (newSettings.partner1Tab) this.state.members[0].tab = newSettings.partner1Tab;
+
     }
     if (this.state.members[1]) {
       if (newSettings.partner2Name) this.state.members[1].name = newSettings.partner2Name;
-      if (newSettings.partner2Tab) this.state.members[1].tab = newSettings.partner2Tab;
+
     }
     this.emit();
     if (this.isConnected()) {
-      await this.enqueueAndFlush({
+      await this.enqueueTableAndFlush({
         type: "saveSettings",
         settings: this.state.settings,
-        expectedVersion: this.state.tableVersions.settings
+        expectedVersion
       });
     }
+  }
+
+  async enqueueTableAndFlush(op) {
+    const failedBefore = this.state.failedQueue.length;
+    await this.enqueueAndFlush(op);
+    const failed = this.state.failedQueue.slice(failedBefore).find(item=>item.op===op);
+    if (failed) {
+      try { await this.sync(); } catch (_) {}
+      throw new Error(failed.error || 'Conflict de versiune. Recitește datele.');
+    }
+    if (this.state.pendingQueue.includes(op)) throw new Error(this.state.lastError || 'Operația rămâne în coadă. Nu o crea din nou.');
   }
 
   async enqueueAndFlush(op) {
@@ -748,7 +759,7 @@ export class Store {
           if (Array.isArray(res?.accounts)) this.state.accounts = res.accounts;
           if (Array.isArray(res?.merchants)) this.state.merchants = res.merchants;
         } else if (op.type === "saveAccount") {
-          res = await api.pushSaveAccount(webAppUrl, pin, op.account);
+          res = await api.pushSaveAccount(webAppUrl, pin, op.account, op.expectedVersion);
           if (res?.version) this.state.tableVersions.accounts = res.version;
           if (Array.isArray(res?.accounts)) this.state.accounts = res.accounts;
         } else if (op.type === "saveAccounts") {
@@ -764,16 +775,18 @@ export class Store {
           if (res?.version) this.state.tableVersions.currencies = res.version;
           if (Array.isArray(res?.currencies)) this.state.currencies = res.currencies;
         } else if (op.type === "saveMerchant") {
-          res = await api.pushSaveMerchant(webAppUrl, pin, op.merchant);
+          res = await api.pushSaveMerchant(webAppUrl, pin, op.merchant, op.expectedVersion);
+          if (res?.version) this.state.tableVersions.merchants = res.version;
           if (Array.isArray(res?.merchants)) this.state.merchants = res.merchants;
         } else if (op.type === "deleteMerchant") {
-          res = await api.pushDeleteMerchant(webAppUrl, pin, op.name);
+          res = await api.pushDeleteMerchant(webAppUrl, pin, op.name, op.expectedVersion);
+          if (res?.version) this.state.tableVersions.merchants = res.version;
           if (Array.isArray(res?.merchants)) this.state.merchants = res.merchants;
         } else if (op.type === "saveSettings") {
           res = await api.pushSettings(webAppUrl, pin, op.settings, op.expectedVersion);
           if (res?.version) {
             // Our own successful save bumped the version: later queued settings ops created from the same base are not conflicts with another device.
-            this.state.pendingQueue.forEach((q, i) => { if (i > 0 && q.type === "saveSettings" && q.expectedVersion === op.expectedVersion) q.expectedVersion = res.version; });
+            // Never silently rebase a queued snapshot onto a newer table version.
             this.state.tableVersions.settings = res.version;
           }
           if (res?.settings) this.state.settings = { ...this.state.settings, ...res.settings };
