@@ -199,3 +199,8 @@ export function buildTransferLink(config) {
   const base = window.location.href.split("#")[0];
   return `${base}#setup=${code}`;
 }
+
+export async function readRecurrences(webAppUrl, pin) { return postToScript(webAppUrl, {action:'getRecurrences',pin}); }
+export async function previewRecurrences(webAppUrl, pin) { return postToScript(webAppUrl, {action:'previewRecurrences',pin}); }
+export async function saveRecurrence(webAppUrl, pin, rule, expectedRevision) { return postToScript(webAppUrl, {action:'saveRecurrence',pin,rule,expectedRevision}); }
+export async function setRecurrenceEngine(webAppUrl, pin, enabled) { return postToScript(webAppUrl, {action:'setRecurrenceEngine',pin,enabled}); }
