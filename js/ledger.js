@@ -291,6 +291,8 @@ export function computeAccountBalances(accounts, transactions, currencies = [], 
       initialBalance: Number(acc.initialBalance) || 0,
       initialDate: String(acc.initialDate || "").slice(0, 10),
       balance: Number(acc.initialBalance) || 0,
+      // Sold inițial necunoscut: 0 fără dată de start nu este un sold cunoscut, doar punctul de plecare al mișcărilor.
+      balanceKnown: (Number(acc.initialBalance) || 0) !== 0 || Boolean(String(acc.initialDate || "").slice(0, 10)),
       count: 0,
       txCount: 0
     });
