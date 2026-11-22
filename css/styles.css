@@ -1014,7 +1014,7 @@ button, input, select, textarea {
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   z-index: 30;
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
@@ -1240,3 +1240,12 @@ button, input, select, textarea {
 .hero-current .hero-label { font-size:.75rem; }
 .hero-current .hero-caption { font-size:.66rem; }
 @media(max-width:360px) { .hero-overview { grid-template-columns:minmax(0,3fr) minmax(72px,1fr); gap:10px; } .hero-current {padding-left:9px;} }
+
+.account-group-title {font-size:.95rem; margin:20px 0 10px;}
+.account-card {align-items:flex-start;}
+.account-card > .mini-left {flex:1; min-width:0;}
+.account-card .mini-left > div:last-child {min-width:0; overflow-wrap:anywhere;}
+.account-card > .icon-btn {flex:0 0 34px; width:34px; height:34px;}
+@media(max-width:360px) {.bottom-nav .nav-item {font-size:.62rem; min-width:0;} .bottom-nav .nav-ic {font-size:1.1rem;}}
+
+.fab[hidden] {display:none;}
