@@ -221,6 +221,7 @@ function buildInsights(ctx) {
     list.push({
       type: ledger.balantaNeta >= 0 ? "positive" : "warning",
       icon: ledger.balantaNeta >= 0 ? "💚" : "⚖️",
+      drill: { kind: "balance" },
       title: `Balanță netă: ${ledger.balantaNeta >= 0 ? "+" : ""}${formatMoney(ledger.balantaNeta, baseCur)}`,
       text: `Venituri ${formatMoney(ledger.venituri, baseCur)} − Cheltuieli nete ${formatMoney(ledger.cheltuieliNete, baseCur)}${ledger.rambursariComerciant > 0 ? ` (include rambursări -${formatMoney(ledger.rambursariComerciant, baseCur)})` : ""}.`
     });
@@ -230,6 +231,7 @@ function buildInsights(ctx) {
     list.push({
       type: "positive",
       icon: "📈",
+      drill: { kind: "type", index: "investitie" },
       title: `Investiții în această lună: ${formatMoney(ledger.investitiiVolum, baseCur)}`,
       text: "Investițiile sunt urmărite separat și nu umflă totalul cheltuielilor."
     });
@@ -240,6 +242,7 @@ function buildInsights(ctx) {
       list.push({
         type: "warning",
         icon: "📈",
+        drill: { kind: "type", index: "cheltuiala" },
         title: `Cheltuieli cu ${diffPrevPct}% mai mari față de luna trecută`,
         text: `Cu ${formatMoney(diffPrev, baseCur)} mai mult comparativ cu luna anterioară (${formatMoney(prevTotal, baseCur)}).`
       });
@@ -247,6 +250,7 @@ function buildInsights(ctx) {
       list.push({
         type: "positive",
         icon: "🎉",
+        drill: { kind: "type", index: "cheltuiala" },
         title: `Economie de ${Math.abs(diffPrevPct)}% față de luna trecută`,
         text: `Sunteți cu ${formatMoney(Math.abs(diffPrev), baseCur)} sub nivelul lunii anterioare.`
       });
@@ -258,6 +262,7 @@ function buildInsights(ctx) {
       list.push({
         type: "danger",
         icon: "🚨",
+        drill: { kind: "type", index: "cheltuiala" },
         title: "Bugetul lunar a fost depășit",
         text: `Ați atins ${Math.round(budgetPct)}% din bugetul de ${formatMoney(monthlyBudget, baseCur)}.`
       });
@@ -265,6 +270,7 @@ function buildInsights(ctx) {
       list.push({
         type: "warning",
         icon: "⏱️",
+        drill: { kind: "type", index: "cheltuiala" },
         title: `Proiecție peste buget: ~${formatMoney(projectedTotal, baseCur)}`,
         text: `La ritmul actual, veți depăși bugetul lunar cu aproximativ ${formatMoney(projectedTotal - monthlyBudget, baseCur)}.`
       });
@@ -276,12 +282,14 @@ function buildInsights(ctx) {
     list.push({
       type: "info",
       icon: top.emoji || top.icon,
+      drill: { kind: "category", index: top.id },
       title: `Top categorie: ${top.name} (${Math.round(top.pct)}%)`,
       text: `${formatMoney(top.total, baseCur)} din ${top.count} ${top.count === 1 ? "tranzacție" : "tranzacții"}.`
     });
   }
 
-  if (p1Shared > 0 || p2Shared > 0) {
+  const soloMember = store.isConnected() && Array.isArray(store.state.members) && store.state.members.length === 1;
+  if (!soloMember && (p1Shared > 0 || p2Shared > 0)) {
     const diff = Math.abs(p1Shared - p2Shared) / 2;
     if (diff >= 10) {
       const p1Name = store.state.settings.partner1Name;
@@ -291,6 +299,7 @@ function buildInsights(ctx) {
       list.push({
         type: "info",
         icon: "🤝",
+        drill: { kind: "shared" },
         title: "Echilibru cheltuieli comune (50/50)",
         text: `${p1Name}: ${formatMoney(p1Shared, baseCur)} vs ${p2Name}: ${formatMoney(p2Shared, baseCur)}. Compensare 50/50: ${payer} → ${receiver} (${formatMoney(diff, baseCur)}).`
       });
@@ -302,6 +311,7 @@ function buildInsights(ctx) {
     list.push({
       type: "info",
       icon: "📅",
+      drill: { kind: "weekday", index: topDay.dayIndex },
       title: `Ziua de vârf: ${topDay.name}`,
       text: `Cheltuieli de ${formatMoney(topDay.total, baseCur)} în zilele de ${topDay.name}.`
     });
@@ -312,6 +322,7 @@ function buildInsights(ctx) {
     list.push({
       type: "info",
       icon: "💱",
+      drill: { kind: "foreign" },
       title: "Tranzacții în alte valute",
       text: foreign.map((c) => formatMoney(c.originalTotal, c.code)).join(", ")
     });
