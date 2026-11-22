@@ -16,6 +16,17 @@ let currentView = "dashboard";
 let txSearch = "";
 let txTypeFilter = "all";
 let txCategoryFilter = "all";
+let txAccountFilter = "all";
+let txDayFilter = "";
+
+function resetTxFilters() {
+  txTypeFilter = "all";
+  txCategoryFilter = "all";
+  txAccountFilter = "all";
+  txDayFilter = "";
+  txSearch = "";
+}
+
 let editingExpenseId = null;
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -148,12 +159,64 @@ function initApp() {
 }
 
 function bindGlobalEvents() {
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const el = e.target.closest && e.target.closest('[role="button"][data-open-account], [role="button"][data-chart-category]');
+    if (el) { e.preventDefault(); el.click(); }
+  });
+
   document.addEventListener("click", (e) => {
     const navBtn = e.target.closest("[data-view]");
     if (navBtn) {
       currentView = navBtn.dataset.view;
       render();
       window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    const openAcc = e.target.closest("[data-open-account]");
+    if (openAcc) {
+      resetTxFilters();
+      txAccountFilter = openAcc.dataset.openAccount;
+      currentView = "transactions";
+      render();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    const chartCat = e.target.closest("[data-chart-category]");
+    if (chartCat) {
+      resetTxFilters();
+      txTypeFilter = "cheltuiala";
+      txCategoryFilter = chartCat.dataset.chartCategory;
+      currentView = "transactions";
+      render();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    const chartMonth = e.target.closest("[data-chart-month]");
+    if (chartMonth) {
+      const [yy, mm] = chartMonth.dataset.chartMonth.split("-").map(Number);
+      store.setMonth(yy, mm);
+      return;
+    }
+
+    const chartDay = e.target.closest("[data-chart-day]");
+    if (chartDay) {
+      resetTxFilters();
+      txTypeFilter = "cheltuiala";
+      const st = store.state;
+      txDayFilter = `${st.selectedYear}-${String(st.selectedMonth + 1).padStart(2, "0")}-${String(chartDay.dataset.chartDay).padStart(2, "0")}`;
+      currentView = "transactions";
+      render();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    if (e.target.closest("#btn-clear-tx-filters")) {
+      resetTxFilters();
+      render();
       return;
     }
 
@@ -236,6 +299,10 @@ function renderChrome() {
     p2Btn.textContent = s.settings.partner2Name || "Soția";
     p1Btn.classList.toggle("active", s.activePartner === "p1");
     p2Btn.classList.toggle("active", s.activePartner === "p2");
+    // Un singur membru configurat în Sheet: nu sugerăm un al doilea profil cu acces.
+    const single = store.isConnected() && Array.isArray(s.members) && s.members.length === 1;
+    p2Btn.hidden = single;
+    p2Btn.style.display = single ? "none" : "";
   }
 
   const themeBtn = $("#btn-theme");
@@ -415,7 +482,7 @@ function renderDashboard() {
       </div>
       <div class="item-grid">
         ${activeAccounts.map((acc) => `
-          <div class="mini-card">
+          <div class="mini-card${acc.visible === false ? "" : " tappable"}" ${acc.visible === false ? "" : `data-open-account="${esc(acc.id)}" role="button" tabindex="0" aria-label="Detalii cont ${esc(acc.name)}"`}>
             <div class="mini-left">
               <div class="mini-icon" style="background:var(--primary-soft); color:var(--primary)">${accountIcon(acc.type)}</div>
               <div>
@@ -548,8 +615,18 @@ function renderTxRow(exp, baseCur) {
 function renderTransactions() {
   const s = store.state;
   const baseCur = s.settings.baseCurrency || "RON";
-  let list = store.getVisibleExpenses({ year: s.selectedYear, month: s.selectedMonth, scope: s.scope });
+  const byAccount = txAccountFilter !== "all";
+  let list = byAccount
+    ? store.getVisibleExpenses({ scope: s.scope })
+    : store.getVisibleExpenses({ year: s.selectedYear, month: s.selectedMonth, scope: s.scope });
 
+  if (byAccount) {
+    list = list.filter((e) => (e.account || e.accountId) === txAccountFilter || (e.toAccount || e.destAccountId) === txAccountFilter);
+    list.sort((x, y) => String(y.date).localeCompare(String(x.date)));
+  }
+  if (txDayFilter) {
+    list = list.filter((e) => e.date === txDayFilter);
+  }
   if (txTypeFilter !== "all") {
     list = list.filter((e) => (e.type || "cheltuiala") === txTypeFilter);
   }
@@ -566,8 +643,27 @@ function renderTransactions() {
     );
   }
 
+  let activeFilterBar = "";
+  if (byAccount || txDayFilter || txCategoryFilter !== "all") {
+    const parts = [];
+    if (byAccount) {
+      const accBal = computeAccountBalances(s.accounts || [], store.getVisibleExpenses({ scope: "all" }), s.currencies || [], baseCur, store.getActiveEmail())
+        .find((x) => x.id === txAccountFilter);
+      const accName = accBal ? accBal.name : store.getAccount(txAccountFilter)?.name || txAccountFilter;
+      parts.push(`🏦 Cont: <strong>${esc(accName)}</strong>${accBal && accBal.visible !== false ? ` • Sold ${formatMoney(accBal.balance, accBal.currency)}` : ""} • toate lunile`);
+    }
+    if (txCategoryFilter !== "all") parts.push(`🏷️ Categorie: <strong>${esc(store.getCategory(txCategoryFilter).name)}</strong> • ${MONTHS_RO[s.selectedMonth]} ${s.selectedYear}`);
+    if (txDayFilter) parts.push(`📅 Ziua: <strong>${esc(txDayFilter)}</strong>`);
+    activeFilterBar = `
+      <div class="banner">
+        <div class="banner-text">${parts.join("<br>")}</div>
+        <button class="btn btn-sm btn-secondary" id="btn-clear-tx-filters">✕ Șterge filtrul</button>
+      </div>`;
+  }
+
   return `
     ${renderControlsRow()}
+    ${activeFilterBar}
 
     <section class="card">
       <div class="card-header">
