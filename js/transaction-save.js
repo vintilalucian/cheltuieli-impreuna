@@ -1,5 +1,5 @@
 // One form session owns one request ID. Retries only flush that request.
-export function createTransactionSaveSession(store, { expenseId = null } = {}) {
+export function createTransactionSaveSession(store, { expenseId = null, expectedModified = null } = {}) {
   const requestId = expenseId || `entry_${crypto.randomUUID()}`;
   let submitted = false;
   let inFlight = null;
@@ -24,7 +24,7 @@ export function createTransactionSaveSession(store, { expenseId = null } = {}) {
         } else {
           const before = store.state.expenses.find((item) => item.id === requestId);
           try {
-            if (expenseId) await store.updateExpense(expenseId, payload);
+            if (expenseId) await store.updateExpense(expenseId, payload, expectedModified);
             else if (payload.type === "transfer") await store.addTransfer({ ...payload, id: requestId });
             else await store.addExpense({ ...payload, id: requestId });
             submitted = true;
