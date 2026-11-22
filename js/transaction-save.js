@@ -24,9 +24,9 @@ export function createTransactionSaveSession(store, { expenseId = null, expected
         } else {
           const before = store.state.expenses.find((item) => item.id === requestId);
           try {
-            if (expenseId) await store.updateExpense(expenseId, payload, expectedModified);
-            else if (payload.type === "transfer") await store.addTransfer({ ...payload, id: requestId });
-            else await store.addExpense({ ...payload, id: requestId });
+            if (expenseId) await store.updateExpense(expenseId, payload, expectedModified, { background: true });
+            else if (payload.type === "transfer") await store.addTransfer({ ...payload, id: requestId }, { background: true });
+            else await store.addExpense({ ...payload, id: requestId }, { background: true });
             submitted = true;
           } catch (error) {
             // An unexpected local persistence error must not create a second ID.
