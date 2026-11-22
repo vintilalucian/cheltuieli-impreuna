@@ -2,6 +2,7 @@ const normalize = (s) => String(s || '').trim().replace(/\s+/g, ' ').normalize('
 const kindOf = (c) => (c.type || c.kind) === 'venit' ? 'venit' : 'cheltuiala';
 const matches = (c, name, kind) => c && c.active !== false && normalize(c.name) === normalize(name) && kindOf(c) === kind;
 export function createInlineCategorySession(store, { makeId = () => 'cat-' + crypto.randomUUID() } = {}) {
+  const expectedVersion = store.state.tableVersions.categories;
   let entry = null, submitted = false, inflight = null;
   const pending = () => store.state.pendingQueue.find(q => q.type === 'saveCategories' && q.categoryDraftId === entry?.id);
   const failure = () => [...store.state.failedQueue].reverse().find(q => q.op?.type === 'saveCategories' && q.op.categoryDraftId === entry?.id);
@@ -38,9 +39,10 @@ export function createInlineCategorySession(store, { makeId = () => 'cat-' + cry
     } else {
       submitted = true;
       try {
-        await store.saveCategories([...store.state.categories.filter(c=>c.id!==entry.id),entry],{categoryDraftId:entry.id});
+        await store.saveCategories([...store.state.categories.filter(c=>c.id!==entry.id),entry],{categoryDraftId:entry.id,expectedVersion});
       } catch (error) {
         submitted = Boolean(pending() || failure());
+        if (submitted) return result();
         throw error;
       }
     }
