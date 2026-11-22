@@ -1,3 +1,4 @@
+import { createRecurrenceView } from './recurrences-ui.js';
 import {
   MONTHS_RO,
   PAYMENT_METHODS,
@@ -13,6 +14,7 @@ import { exportToExcel, previewImportFile } from "./excel.js";
 import { encodeSetupCode, decodeSetupCode, buildTransferLink } from "./sheets-api.js";
 
 let currentView = "dashboard";
+const recurrenceView = createRecurrenceView({context:()=>store.state, refresh:()=>render(), notify:(...args)=>showToast(...args)});
 let txSearch = "";
 let txTypeFilter = "all";
 let txCategoryFilter = "all";
@@ -184,6 +186,7 @@ function bindGlobalEvents() {
     if (navBtn) {
       currentView = navBtn.dataset.view;
       render();
+      if (currentView === "recurrences") recurrenceView.load();
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
@@ -334,6 +337,7 @@ function render() {
   else if (currentView === "accounts") root.innerHTML = renderAccounts();
   else if (currentView === "catalog") root.innerHTML = renderCatalog();
   else if (currentView === "settings") root.innerHTML = renderSettings();
+  else if (currentView === "recurrences") root.innerHTML = recurrenceView.render();
 
   bindViewSpecificEvents();
 }
@@ -356,7 +360,7 @@ function renderChrome() {
   });
 
   const fab = $("#fab-add");
-  if (fab) fab.hidden = currentView === "accounts";
+  if (fab) fab.hidden = currentView === "accounts" || currentView === "recurrences";
 
   const p1Btn = $("#pill-p1");
   const p2Btn = $("#pill-p2");
@@ -985,6 +989,7 @@ function renderSettings() {
   const connected = store.isConnected();
 
   return `
+    <section class="card"><div class="card-header"><div><h2 class="card-title">Recurențe și mementouri</h2><p class="card-sub">Sume fixe în evidența aplicației. Cazurile variabile rămân în Google Tasks, cu notele originale.</p></div><button class="btn btn-primary" data-view="recurrences">Deschide recurențele</button></div></section>
     <section class="card">
       <div class="card-header">
         <div>
@@ -1098,6 +1103,7 @@ function renderSettings() {
 // Evenimente specifice fiecărei pagini
 // =========================================================================
 function bindViewSpecificEvents() {
+  if (currentView === "recurrences") { recurrenceView.bind($("#view-root")); return; }
   const retryBtn = $("#btn-retry-sync");
   if (retryBtn) retryBtn.onclick = handleManualSync;
   const clearFailedBtn = $("#btn-clear-failed");
