@@ -681,6 +681,12 @@ export class Store {
    * - Eroare temporară (rețea, LOCK_TIMEOUT, HTTP 5xx) -> păstrează în `pendingQueue` pentru reîncercare.
    */
   async flushQueue() {
+    if (this._flushing) return this._flushing; // one flush at a time: no parallel double-send of the same op
+    this._flushing = this._flushQueueInner().finally(() => { this._flushing = null; });
+    return this._flushing;
+  }
+
+  async _flushQueueInner() {
     if (!this.isConnected() || !this.state.pendingQueue.length) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
 
@@ -764,7 +770,11 @@ export class Store {
           if (Array.isArray(res?.merchants)) this.state.merchants = res.merchants;
         } else if (op.type === "saveSettings") {
           res = await api.pushSettings(webAppUrl, pin, op.settings, op.expectedVersion);
-          if (res?.version) this.state.tableVersions.settings = res.version;
+          if (res?.version) {
+            // Our own successful save bumped the version: later queued settings ops created from the same base are not conflicts with another device.
+            this.state.pendingQueue.forEach((q, i) => { if (i > 0 && q.type === "saveSettings" && q.expectedVersion === op.expectedVersion) q.expectedVersion = res.version; });
+            this.state.tableVersions.settings = res.version;
+          }
           if (res?.settings) this.state.settings = { ...this.state.settings, ...res.settings };
           if (Array.isArray(res?.members)) this.state.members = res.members;
         }
