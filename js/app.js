@@ -331,8 +331,14 @@ function render() {
   bindViewSpecificEvents();
 }
 
+function singleMemberView() {
+  const s = store.state;
+  return store.isConnected() && Array.isArray(s.members) && s.members.length === 1;
+}
+
 function renderChrome() {
   const s = store.state;
+  if (s.scope === "partner" && store.isConnected() && Array.isArray(s.members) && s.members.length === 1) s.scope = "all";
   document.querySelectorAll("[data-view]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === currentView);
   });
@@ -375,26 +381,34 @@ function renderChrome() {
   }
 }
 
-function renderControlsRow() {
+function renderControlsRow(opts = {}) {
   const s = store.state;
-  const monthName = `${MONTHS_RO[s.selectedMonth]} ${s.selectedYear}`;
+  const monthName = opts.allMonths ? "Toate lunile" : `${MONTHS_RO[s.selectedMonth]} ${s.selectedYear}`;
+  const singleMember = store.isConnected() && Array.isArray(s.members) && s.members.length === 1;
   const meName = store.getPartnerName(s.activePartner);
   const otherName = store.getPartnerName(s.activePartner === "p1" ? "p2" : "p1");
 
-  const scopes = [
-    { id: "all", label: "Împreună" },
-    { id: "shared", label: "Doar Comune" },
-    { id: "mine", label: `Doar ${meName}` },
-    { id: "partner", label: `Doar ${otherName}` },
-    { id: "private", label: "🔒 Private (doar în app)" }
-  ];
+  const scopes = singleMember
+    ? [
+        { id: "all", label: "Toate" },
+        { id: "shared", label: "Doar Comune" },
+        { id: "mine", label: `Doar ${meName}` },
+        { id: "private", label: "🔒 Private (doar în app)" }
+      ]
+    : [
+        { id: "all", label: "Împreună" },
+        { id: "shared", label: "Doar Comune" },
+        { id: "mine", label: `Doar ${meName}` },
+        { id: "partner", label: `Doar ${otherName}` },
+        { id: "private", label: "🔒 Private (doar în app)" }
+      ];
 
   return `
     <div class="controls-row">
       <div class="month-nav">
-        <button id="btn-prev-month" aria-label="Luna anterioară">‹</button>
+        <button id="btn-prev-month" aria-label="Luna anterioară"${opts.allMonths ? " disabled" : ""}>‹</button>
         <div class="month-label">${monthName}</div>
-        <button id="btn-next-month" aria-label="Luna următoare">›</button>
+        <button id="btn-next-month" aria-label="Luna următoare"${opts.allMonths ? " disabled" : ""}>›</button>
       </div>
       <div class="scope-pills">
         ${scopes.map((sc) => `<button class="chip ${s.scope === sc.id ? "active" : ""}" data-scope="${sc.id}">${esc(sc.label)}</button>`).join("")}
@@ -464,8 +478,10 @@ function renderDashboard() {
   const activeAccounts = a.accountBalances.filter((acc) => !acc.archived);
   const availVisible = activeAccounts.filter((acc) => acc.visible !== false);
   const sumBase = (list) => Math.round(list.reduce((t, acc) => t + (Number(acc.baseBalance) || 0), 0) * 100) / 100;
-  const totalAccounts = sumBase(availVisible);
-  const reservedTotal = sumBase(availVisible.filter((acc) => acc.includeInAvailable === false));
+  const knownVisible = availVisible.filter((acc) => acc.balanceKnown !== false);
+  const unknownBalCount = availVisible.length - knownVisible.length;
+  const totalAccounts = sumBase(knownVisible);
+  const reservedTotal = sumBase(knownVisible.filter((acc) => acc.includeInAvailable === false));
   const availableTotal = Math.round((totalAccounts - reservedTotal) * 100) / 100;
   const hiddenAccCount = activeAccounts.length - availVisible.length;
   const recent = a.expenses.slice(0, 6);
@@ -522,7 +538,8 @@ function renderDashboard() {
       <div class="mini-card" style="margin-bottom:10px; display:block">
         <div style="display:flex; justify-content:space-between; font-weight:800"><span>Disponibil</span><span>${formatMoney(availableTotal, a.baseCur)}</span></div>
         <div style="display:flex; justify-content:space-between" class="card-sub"><span>Rezervat (exclus din disponibil)</span><span>${formatMoney(reservedTotal, a.baseCur)}</span></div>
-        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Total conturi</span><span>${formatMoney(totalAccounts, a.baseCur)}</span></div>
+        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Total conturi cu sold cunoscut (${knownVisible.length})</span><span>${formatMoney(totalAccounts, a.baseCur)}</span></div>
+        ${unknownBalCount ? `<div class="card-sub" style="margin-top:6px">⚠️ ${unknownBalCount} cont(uri) fără sold inițial setat: arată doar mișcările înregistrate, nu un sold, și nu intră în totaluri.</div>` : ""}
         <div class="card-sub" style="margin-top:6px">Calculat din soldurile conturilor (nu din buget sau venituri minus cheltuieli)${hiddenAccCount ? `; ${hiddenAccCount} cont(uri) personale ale celuilalt nu sunt incluse` : ""}.</div>
       </div>
       <div class="item-grid">
@@ -536,7 +553,7 @@ function renderDashboard() {
               </div>
             </div>
             <div style="text-align:right; font-weight:800; font-size:0.88rem; color:${acc.visible === false ? "var(--text-muted)" : (acc.balance < 0 ? "var(--danger)" : "var(--text)")}">
-              ${acc.visible === false ? "🔒 Personal" : formatMoney(acc.balance, acc.currency)}
+              ${acc.visible === false ? "🔒 Personal" : (acc.balanceKnown === false ? `<span class="card-sub" style="font-weight:600">Mișcări ${formatMoney(acc.balance, acc.currency)}<br>sold necunoscut</span>` : formatMoney(acc.balance, acc.currency))}
             </div>
           </div>
         `).join("")}
@@ -544,7 +561,7 @@ function renderDashboard() {
     </section>
 
     <div class="grid-2">
-      <section class="card">
+      ${singleMemberView() ? "" : `<section class="card">
         <div class="card-header">
           <h2 class="card-title">👥 Contribuție Cheltuieli Nete</h2>
           <span class="card-sub">Fără transferuri / investiții</span>
@@ -569,7 +586,7 @@ function renderDashboard() {
             <span class="dot" style="background:var(--p2)"></span>
           </div>
         </div>
-      </section>
+      </section>`}
 
       <section class="card">
         <div class="card-header">
@@ -721,7 +738,7 @@ function renderTransactions() {
       const accBal = computeAccountBalances(s.accounts || [], store.getVisibleExpenses({ scope: "all" }), s.currencies || [], baseCur, store.getActiveEmail())
         .find((x) => x.id === txAccountFilter);
       const accName = accBal ? accBal.name : store.getAccount(txAccountFilter)?.name || txAccountFilter;
-      parts.push(`🏦 Cont: <strong>${esc(accName)}</strong>${accBal && accBal.visible !== false ? ` • Sold ${formatMoney(accBal.balance, accBal.currency)}` : ""} • toate lunile`);
+      parts.push(`🏦 Cont: <strong>${esc(accName)}</strong>${accBal && accBal.visible !== false ? ` • ${accBal.balanceKnown === false ? "Mișcări" : "Sold"} ${formatMoney(accBal.balance, accBal.currency)}` : ""} • toate lunile`);
     }
     if (txCategoryFilter !== "all") parts.push(`🏷️ Categorie: <strong>${esc(store.getCategory(txCategoryFilter).name)}</strong> • ${txAllMonths ? "toate lunile" : MONTHS_RO[s.selectedMonth] + " " + s.selectedYear}`);
     if (txWeekdayFilter !== "") parts.push(`📅 Zilele de ${esc(["duminică","luni","marți","miercuri","joi","vineri","sâmbătă"][Number(txWeekdayFilter)])} • ${MONTHS_RO[s.selectedMonth]} ${s.selectedYear}`);
@@ -735,7 +752,7 @@ function renderTransactions() {
   }
 
   return `
-    ${renderControlsRow()}
+    ${renderControlsRow({ allMonths })}
     ${activeFilterBar}
 
     <section class="card">
@@ -817,7 +834,7 @@ function renderAnalytics() {
           <h2 class="card-title">📊 Evoluție Ultimele 6 Luni</h2>
           <span class="card-sub">Comparație parteneri</span>
         </div>
-        ${renderMonthlyTrendChart(a.trend6Months, a.monthlyBudget, s.settings.partner1Name, s.settings.partner2Name, a.baseCur)}
+        ${renderMonthlyTrendChart(a.trend6Months, a.monthlyBudget, s.settings.partner1Name, singleMemberView() ? "" : s.settings.partner2Name, a.baseCur)}
       </section>
 
       <section class="card">
@@ -864,7 +881,7 @@ function renderCatalog() {
                 <div class="card-sub">
                   ${acc.visible === false
                     ? `🔒 Personal (${esc(store.getPartnerName(acc.owner))})`
-                    : `Sold: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • Inițial: ${acc.initialBalance}${acc.initialDate ? ` (${esc(acc.initialDate)})` : ""} • ${esc(store.getPartnerName(acc.owner))}`}
+                    : (acc.balanceKnown === false ? `Mișcări: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • sold inițial necunoscut` : `Sold: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • Inițial: ${acc.initialBalance}${acc.initialDate ? ` (${esc(acc.initialDate)})` : ""}`) + ` • ${esc(store.getPartnerName(acc.owner))}`}
                 </div>
               </div>
             </div>
