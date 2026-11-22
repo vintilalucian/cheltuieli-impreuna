@@ -1444,11 +1444,18 @@ function openExpenseModal(expenseId) {
         <button class="close-btn" data-close-modal>✕</button>
       </div>
       <form id="form-expense" class="form-grid">
-        <div class="form-grid cols-2">
+        <div class="form-grid">
           <div class="field">
             <label>Tip (v4)</label>
             <select class="select" id="exp-type" ${isOwner ? "" : "disabled"}>
               ${Object.values(TX_TYPES).map((t) => `<option value="${esc(t.id)}" ${initialType === t.id ? "selected" : ""}>${t.icon} ${esc(t.label)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label>Categorie</label>
+            <select class="select" id="exp-category" ${isOwner ? "" : "disabled"}>
+              <option value="">— Fără categorie —</option>
+              ${s.categories.filter((c) => c.active !== false || (exp && exp.category === c.id)).map((c) => `<option value="${esc(c.id)}" ${(exp ? exp.category : "alimente") === c.id ? "selected" : ""}>${c.emoji || c.icon} ${esc(c.name)} ${c.type === "venit" ? "(venit)" : ""}</option>`).join("")}
             </select>
           </div>
           <div class="field">
@@ -1521,13 +1528,6 @@ function openExpenseModal(expenseId) {
         </div>
 
         <div class="form-grid cols-2">
-          <div class="field">
-            <label>Categorie</label>
-            <select class="select" id="exp-category" ${isOwner ? "" : "disabled"}>
-              <option value="">— Fără categorie —</option>
-              ${s.categories.filter((c) => c.active !== false || (exp && exp.category === c.id)).map((c) => `<option value="${esc(c.id)}" ${(exp ? exp.category : "alimente") === c.id ? "selected" : ""}>${c.emoji || c.icon} ${esc(c.name)} ${c.type === "venit" ? "(venit)" : ""}</option>`).join("")}
-            </select>
-          </div>
           <div class="field">
             <label>Metodă plată</label>
             <select class="select" id="exp-payment" ${isOwner ? "" : "disabled"}>
