@@ -500,7 +500,8 @@ function renderDashboard() {
   const reservedTotal = sumBase(knownVisible.filter((acc) => acc.includeInAvailable === false));
   const availableTotal = Math.round((totalAccounts - reservedTotal) * 100) / 100;
   const hiddenAccCount = activeAccounts.length - availVisible.length;
-  const recent = a.expenses.slice(0, 6);
+  const spending = a.expenses.filter(e => (e.type || "cheltuiala") === "cheltuiala");
+  const recent = spending.slice(0, 6);
 
   return `
     ${renderStatusBanners()}
@@ -569,13 +570,13 @@ function renderDashboard() {
 
     <section class="card">
       <div class="card-header">
-        <h2 class="card-title">🧾 Ultimele Tranzacții</h2>
-        <button class="btn btn-sm btn-secondary" data-view="transactions">Vezi toate (${a.count})</button>
+        <h2 class="card-title">🧾 Ultimele cheltuieli</h2>
+        <button class="btn btn-sm btn-secondary" data-insight-drill="type" data-insight-index="cheltuiala">Vezi toate (${spending.length}) →</button>
       </div>
       ${recent.length ? `<div class="tx-list">${recent.map((e) => renderTxRow(e, a.baseCur)).join("")}</div>` : `
         <div class="empty-state">
           <div class="big-ic">🛍️</div>
-          <div>Nu ai tranzacții în ${MONTHS_RO[s.selectedMonth]}. Apasă <strong>+</strong> pentru a adăuga!</div>
+          <div>Nu ai cheltuieli în ${MONTHS_RO[s.selectedMonth]}. Apasă <strong>+</strong> pentru a adăuga!</div>
         </div>
       `}
     </section>
