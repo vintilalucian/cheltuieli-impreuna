@@ -1,3 +1,4 @@
+import { createInlineCategorySession } from "./inline-category.js";
 import { createTransactionSaveSession } from "./transaction-save.js";
 import { createRecurrenceView } from './recurrences-ui.js';
 import {
@@ -1296,7 +1297,7 @@ async function copyText(text, successMsg) {
 // MODALE: Previzualizare Import, Tranzacție, Cont, Categorie, Comerciant, Valută
 // =========================================================================
 function closeModals() {
-  if (document.querySelector('#form-expense[data-saving="true"]')) {
+  if (document.querySelector('#form-expense[data-saving="true"], #form-expense[data-category-saving="true"]')) {
     showToast("Salvare în curs. Așteaptă confirmarea; formularul rămâne păstrat.", 4000);
     return;
   }
@@ -1426,6 +1427,13 @@ function openExpenseDetail(expenseId) {
   modal.classList.add("open");
 }
 
+function accountBalanceText(balance) {
+  if (balance?.visible === false) return 'Sold privat';
+  if (!balance || balance.balanceKnown !== true || typeof balance.balance !== 'number' || !Number.isFinite(balance.balance)) return 'Sold necunoscut';
+  const estimated = balance.balanceEstimated || Number(balance.estimatedIn) > 0;
+  return `${estimated ? '≈ ' : ''}${formatMoney(balance.balance, balance.currency)}`;
+}
+
 function openExpenseModal(expenseId) {
   const s = store.state;
   const exp = expenseId ? s.expenses.find((e) => e.id === expenseId) : null;
@@ -1462,8 +1470,18 @@ function openExpenseModal(expenseId) {
             <label>Categorie</label>
             <select class="select" id="exp-category" ${isOwner ? "" : "disabled"}>
               <option value="">— Fără categorie —</option>
-              ${s.categories.filter((c) => c.active !== false || (exp && exp.category === c.id)).map((c) => `<option value="${esc(c.id)}" ${(exp ? exp.category : "alimente") === c.id ? "selected" : ""}>${c.emoji || c.icon} ${esc(c.name)} ${c.type === "venit" ? "(venit)" : ""}</option>`).join("")}
+              ${s.categories.filter((c) => (c.active !== false || (exp && exp.category === c.id)) && !c.pendingInlineCategory).map((c) => `<option value="${esc(c.id)}" ${(exp ? exp.category : "alimente") === c.id ? "selected" : ""}>${c.emoji || c.icon} ${esc(c.name)} ${c.type === "venit" ? "(venit)" : ""}</option>`).join("")}
+              ${isOwner ? '<option value="__new_category__">＋ Categorie nouă…</option>' : ''}
             </select>
+            <fieldset id="exp-new-category" hidden style="min-width:0;border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px">
+              <legend>Categorie nouă</legend>
+              <label for="exp-new-category-name">Nume categorie</label>
+              <input class="input" id="exp-new-category-name" maxlength="60" autocomplete="off">
+              <label for="exp-new-category-kind">Tip categorie</label>
+              <select class="select" id="exp-new-category-kind"><option value="cheltuiala">Cheltuială</option><option value="venit">Venit</option></select>
+              <p class="card-sub" id="exp-new-category-status" role="status" aria-live="polite"></p>
+              <div class="btn-row" style="flex-wrap:wrap;margin-top:8px"><button type="button" class="btn btn-primary" id="exp-new-category-save">Salvează și selectează</button><button type="button" class="btn btn-secondary" id="exp-new-category-cancel">Înapoi la formular</button><button type="button" class="btn btn-secondary" id="exp-new-category-reload" hidden>Reîncarcă listele</button></div>
+            </fieldset>
           </div>
           <div class="field">
             <label>Data (YYYY-MM-DD)</label>
@@ -1491,6 +1509,8 @@ function openExpenseModal(expenseId) {
               <option value="">— Fără cont —</option>
               ${myAccounts.map((a) => `<option value="${esc(a.id)}" ${curAccount === a.id ? "selected" : ""}>${esc(a.name)} (${esc(a.currency)})</option>`).join("")}
             </select>
+            <p class="card-sub" id="exp-account-balance" aria-live="polite"></p>
+            <p class="card-sub" id="exp-account-balance-notice">Sold din evidența aplicației, nu citire live de la bancă.</p>
           </div>
           <div class="field">
             <label>Curs (față de ${esc(baseCur)})</label>
@@ -1582,6 +1602,27 @@ function openExpenseModal(expenseId) {
   const trFields = $("#transfer-fields");
   const merEl = $("#exp-merchant");
   const catEl = $("#exp-category");
+  const refreshSourceBalances = () => {
+    const current = store.state;
+    const balances = new Map(computeAccountBalances(
+      current.accounts || [], store.getVisibleExpenses({ scope: "all" }),
+      current.currencies || [], current.settings.baseCurrency, store.getActiveEmail()
+    ).map((a) => [a.id, a]));
+    for (const option of accEl.options) {
+      if (!option.value) continue;
+      const account = store.getAccount(option.value);
+      if (account) option.textContent = `${account.name} · ${accountBalanceText(balances.get(option.value))}`;
+    }
+    $("#exp-account-balance").textContent = accEl.value
+      ? `Sold în aplicație: ${accountBalanceText(balances.get(accEl.value))}`
+      : 'Alege un cont pentru a vedea soldul înregistrat.';
+    const pendingFinancial = current.pendingQueue.some((op) => ['addExpense','addTransfer','updateExpense','deleteExpense','bulkImport'].includes(op.type));
+    $("#exp-account-balance-notice").textContent = current.syncing || pendingFinancial
+      ? 'Sincronizare în curs sau operații neconfirmate. Soldul local se poate schimba. Nu este o citire bancară live.'
+      : 'Sold din evidența aplicației, nu citire live de la bancă.';
+  };
+  accEl.onfocus = refreshSourceBalances;
+  refreshSourceBalances();
 
   const syncConditionalFields = () => {
     const t = typeEl.value;
@@ -1603,6 +1644,7 @@ function openExpenseModal(expenseId) {
       curEl.value = chosen.currency;
       rateEl.value = store.getRateToBase(chosen.currency);
     }
+    refreshSourceBalances();
   };
   merEl.onchange = () => {
     if (exp) return;
@@ -1610,6 +1652,70 @@ function openExpenseModal(expenseId) {
     if (m && m.category) catEl.value = m.category;
   };
   syncConditionalFields();
+
+  const categoryPanel = $("#exp-new-category");
+  const categoryStatus = $("#exp-new-category-status");
+  const categoryName = $("#exp-new-category-name");
+  const categoryKind = $("#exp-new-category-kind");
+  const categorySave = $("#exp-new-category-save");
+  const categoryCancel = $("#exp-new-category-cancel");
+  const categoryReload = $("#exp-new-category-reload");
+  let categorySession = createInlineCategorySession(store), categoryBusy = false, previousCategory = catEl.value;
+  catEl.onchange = () => {
+    if (catEl.value !== '__new_category__') { previousCategory = catEl.value; categoryPanel.hidden = true; return; }
+    catEl.value = previousCategory;
+    categoryPanel.hidden = false;
+    if (!categoryName.value) categoryKind.value = typeEl.value === 'venit' ? 'venit' : 'cheltuiala';
+    categoryStatus.textContent = 'Câmpurile formularului se păstrează. Înregistrarea nu este trimisă când creezi categoria.';
+    categoryName.focus();
+  };
+  const categoryLock = (busy) => {
+    categoryBusy = busy;
+    if (busy) expenseForm.dataset.categorySaving = 'true'; else delete expenseForm.dataset.categorySaving;
+    categorySave.disabled = busy; categoryCancel.disabled = busy; categoryReload.disabled = busy;
+    categoryName.disabled = busy || categorySession.submitted;
+    categoryKind.disabled = busy || categorySession.submitted;
+    saveButton.disabled = busy || terminalFailure;
+  };
+  categoryCancel.onclick = () => {
+    if (categoryBusy) return;
+    if (categorySession.submitted) showToast('Categoria rămâne în coadă sau în lista de erori. Înregistrarea nu a fost trimisă.',4500);
+    else categoryName.value = '';
+    categoryPanel.hidden = true; categorySession = createInlineCategorySession(store);
+    categoryName.disabled = false; categoryKind.disabled = false; categorySave.textContent = 'Salvează și selectează';
+    categoryReload.hidden = true; catEl.focus();
+  };
+  const saveInlineCategory = async () => {
+    if (categoryBusy || !isOwner) return;
+    categoryLock(true); categoryStatus.textContent = 'Se salvează categoria. Formularul este păstrat.';
+    try {
+      const result = await categorySession.save({name:categoryName.value,kind:categoryKind.value});
+      if (['confirmed','existing','local'].includes(result.status)) {
+        const entry = result.entry;
+        let option = Array.from(catEl.options).find(o => o.value === entry.id);
+        if (!option) { option = new Option(`${entry.emoji || entry.icon || '📦'} ${entry.name}${(entry.type || entry.kind) === 'venit' ? ' (venit)' : ''}`,entry.id);catEl.add(option,catEl.options.length-1); }
+        catEl.value = entry.id; previousCategory = entry.id; categoryPanel.hidden = true; categoryName.value = '';
+        showToast(result.status === 'local' ? 'Categorie salvată doar pe acest dispozitiv și selectată.' : result.status === 'existing' ? 'Categoria existentă a fost selectată.' : 'Categorie confirmată și selectată. Formularul este păstrat.',4500);
+        categorySession = createInlineCategorySession(store); categorySave.textContent = 'Salvează și selectează'; categoryReload.hidden = true;
+      } else if (result.status === 'pending') {
+        categoryStatus.textContent = 'Categoria nu este încă confirmată. Înregistrarea nu a fost trimisă. Reîncercarea folosește aceeași categorie. ' + result.message;
+        categorySave.textContent = 'Reîncearcă sincronizarea';
+      } else {
+        categoryStatus.textContent = 'Categoria nu este confirmată. Reîncarcă listele înainte de o nouă încercare. Câmpurile formularului se păstrează. ' + result.message;
+        categorySave.disabled = true; categoryReload.hidden = false;
+      }
+    } catch (error) { categoryStatus.textContent = 'Categoria nu este confirmată. Formularul se păstrează. ' + error.message; }
+    finally { categoryLock(false); if (!categoryReload.hidden) categorySave.disabled = true; }
+  };
+  categorySave.onclick = saveInlineCategory;
+  categoryPanel.onkeydown = (event) => { if (event.key === 'Enter' && event.target.tagName !== 'BUTTON') { event.preventDefault(); saveInlineCategory(); } };
+  categoryReload.onclick = async () => {
+    if (categoryBusy) return;
+    categoryLock(true);
+    try { await store.sync(); categorySession = createInlineCategorySession(store); categoryStatus.textContent = 'Liste recitite. Verifică numele și încearcă din nou. Formularul este păstrat.';categoryReload.hidden = true;categorySave.textContent = 'Salvează și selectează'; }
+    catch (error) { categoryStatus.textContent = 'Listele nu au fost recitite. Formularul este păstrat. ' + error.message; }
+    finally { categoryLock(false); if (!categoryReload.hidden) categorySave.disabled = true; }
+  };
 
   const expenseForm = $("#form-expense");
   const saveButton = expenseForm.querySelector('button[type="submit"]');
@@ -1631,6 +1737,7 @@ function openExpenseModal(expenseId) {
 
   expenseForm.onsubmit = async (e) => {
     e.preventDefault();
+    if (!categoryPanel.hidden || categoryBusy) { if (!categoryStatus.textContent) categoryStatus.textContent = 'Salvează categoria sau revino la formular înainte să trimiți înregistrarea.'; return; }
     if (saving || terminalFailure) return;
     saving = true;
     expenseForm.dataset.saving = "true";
