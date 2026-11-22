@@ -138,12 +138,12 @@ export async function pushAccounts(webAppUrl, pin, accounts, expectedVersion) {
   return postToScript(webAppUrl, { action: "saveAccounts", pin, accounts, expectedVersion });
 }
 
-export async function pushSaveAccount(webAppUrl, pin, account) {
-  return postToScript(webAppUrl, { action: "saveAccount", pin, account });
+export async function pushSaveAccount(webAppUrl, pin, account, expectedVersion) {
+  return postToScript(webAppUrl, { action: "saveAccount", pin, account, expectedVersion });
 }
 
-export async function pushDeleteAccount(webAppUrl, pin, id) {
-  return postToScript(webAppUrl, { action: "deleteAccount", pin, id });
+export async function pushDeleteAccount(webAppUrl, pin, id, expectedVersion) {
+  return postToScript(webAppUrl, { action: "deleteAccount", pin, id, expectedVersion });
 }
 
 export async function pushCategories(webAppUrl, pin, categories, expectedVersion) {
@@ -154,12 +154,12 @@ export async function pushCurrencies(webAppUrl, pin, currencies, expectedVersion
   return postToScript(webAppUrl, { action: "saveCurrencies", pin, currencies, expectedVersion });
 }
 
-export async function pushSaveMerchant(webAppUrl, pin, merchant) {
-  return postToScript(webAppUrl, { action: "saveMerchant", pin, merchant });
+export async function pushSaveMerchant(webAppUrl, pin, merchant, expectedVersion) {
+  return postToScript(webAppUrl, { action: "saveMerchant", pin, merchant, expectedVersion });
 }
 
-export async function pushDeleteMerchant(webAppUrl, pin, name) {
-  return postToScript(webAppUrl, { action: "deleteMerchant", pin, name });
+export async function pushDeleteMerchant(webAppUrl, pin, name, expectedVersion) {
+  return postToScript(webAppUrl, { action: "deleteMerchant", pin, name, expectedVersion });
 }
 
 export async function pushSettings(webAppUrl, pin, settings, expectedVersion) {
