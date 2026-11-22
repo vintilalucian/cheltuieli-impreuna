@@ -1,0 +1,20 @@
+{
+  "name": "BugetFamilie — Tracking Cumpărături",
+  "short_name": "BugetFamilie",
+  "description": "Aplicație modernă de tracking cumpărături și cheltuieli în familie, sincronizată cu Google Sheets.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "lang": "ro",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
