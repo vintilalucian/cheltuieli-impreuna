@@ -155,7 +155,7 @@ export function renderMonthlyTrendChart(trend6Months, budget, p1Name, p2Name, ba
       </svg>
       <div class="trend-legend">
         <span><i class="dot" style="background:#3b82f6"></i> ${escapeHtml(p1Name)}</span>
-        <span><i class="dot" style="background:#ec4899"></i> ${escapeHtml(p2Name)}</span>
+        ${p2Name ? `<span><i class="dot" style="background:#ec4899"></i> ${escapeHtml(p2Name)}</span>` : ""}
         ${budget > 0 ? `<span><i class="dot dashed"></i> Buget lunar (${formatMoney(budget, baseCur)})</span>` : ""}
       </div>
     </div>
