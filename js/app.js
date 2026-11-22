@@ -105,7 +105,7 @@ function showUpdateBanner(reg) {
   bar.id = "update-banner";
   bar.setAttribute("role", "status");
   bar.style.cssText = "position:fixed;left:8px;right:8px;bottom:72px;z-index:9999;background:#1f2937;color:#fff;padding:10px 12px;border-radius:10px;display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:14px";
-  bar.innerHTML = '<span>Versiune nouă disponibilă.</span><button type="button" id="update-apply" style="padding:6px 10px;border-radius:8px;border:0">Actualizează</button>';
+  bar.innerHTML = '<span>Versiune nouă disponibilă.</span><button type="button" id="update-apply" style="padding:8px 12px;border-radius:8px;border:0;background:#fff;color:#111827;font-weight:600;font-size:14px">Actualizează</button>';
   document.body.appendChild(bar);
   document.getElementById("update-apply").onclick = () => {
     // An open form with unsaved typing would be lost on reload: ask first. Queued (pending) writes are persisted and survive.
