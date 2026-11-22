@@ -1,4 +1,4 @@
-const BUILD_ID = "2026-11-22.11"; // bump on every release (release script/test replaces this)
+const BUILD_ID = "2026-11-22.12"; // bump on every release (release script/test replaces this)
 const CACHE_NAME = "buget-familie-" + BUILD_ID;
 const ASSETS = [
   "./", "./index.html", "./manifest.json", "./icons/icon.svg", "./css/styles.css",
