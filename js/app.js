@@ -18,8 +18,10 @@ let txTypeFilter = "all";
 let txCategoryFilter = "all";
 let txAccountFilter = "all";
 let txDayFilter = "";
+let txAllMonths = false; // category opened from a detail view: all months, newest first, grouped by month
 
 function resetTxFilters() {
+  txAllMonths = false;
   txTypeFilter = "all";
   txCategoryFilter = "all";
   txAccountFilter = "all";
@@ -161,7 +163,7 @@ function initApp() {
 function bindGlobalEvents() {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
-    const el = e.target.closest && e.target.closest('[role="button"][data-open-account], [role="button"][data-chart-category]');
+    const el = e.target.closest && e.target.closest('[role="button"][data-open-account], [role="button"][data-chart-category], [role="button"][data-view-expense]');
     if (el) { e.preventDefault(); el.click(); }
   });
 
@@ -243,9 +245,25 @@ function bindGlobalEvents() {
     if (e.target.closest("#btn-sync")) { handleManualSync(); return; }
     if (e.target.closest("#fab-add")) { openExpenseModal(null); return; }
 
-    const txRow = e.target.closest("[data-edit-expense]");
+    const detailEdit = e.target.closest("[data-detail-edit]");
+    if (detailEdit) { openExpenseModal(detailEdit.dataset.detailEdit); return; }
+    const detailCat = e.target.closest("[data-detail-category]");
+    if (detailCat) {
+      closeModals(); resetTxFilters();
+      txCategoryFilter = detailCat.dataset.detailCategory; txAllMonths = true;
+      currentView = "transactions"; render(); window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const detailAcc = e.target.closest("[data-detail-account]");
+    if (detailAcc) {
+      closeModals(); resetTxFilters();
+      txAccountFilter = detailAcc.dataset.detailAccount;
+      currentView = "transactions"; render(); window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const txRow = e.target.closest("[data-view-expense]");
     if (txRow) {
-      openExpenseModal(txRow.dataset.editExpense);
+      openExpenseDetail(txRow.dataset.viewExpense);
       return;
     }
 
@@ -560,6 +578,22 @@ function renderDashboard() {
   `;
 }
 
+function renderTxListBody(list, baseCur, grouped) {
+  if (!grouped) return list.map((e) => renderTxRow(e, baseCur)).join("");
+  let out = "";
+  let cur = "";
+  list.forEach((e) => {
+    const ym = String(e.date).slice(0, 7);
+    if (ym !== cur) {
+      cur = ym;
+      const [yy, mm] = ym.split("-").map(Number);
+      out += `<div class="tx-month-head" style="font-weight:700;margin:14px 0 6px;color:var(--text-muted)">${esc(MONTHS_RO[(mm || 1) - 1] || ym)} ${esc(String(yy || ""))}</div>`;
+    }
+    out += renderTxRow(e, baseCur);
+  });
+  return out;
+}
+
 function renderTxRow(exp, baseCur) {
   const type = exp.type || "cheltuiala";
   const cat = exp.category ? store.getCategory(exp.category) : null;
@@ -580,7 +614,7 @@ function renderTxRow(exp, baseCur) {
     : "";
 
   return `
-    <div class="tx-item" data-edit-expense="${esc(exp.id)}">
+    <div class="tx-item tappable" data-view-expense="${esc(exp.id)}" role="button" tabindex="0">
       <div class="tx-icon" style="background:${iconBg}; color:${iconCol}">${iconGlyph}</div>
       <div class="tx-main">
         <div class="tx-title">
@@ -616,14 +650,15 @@ function renderTransactions() {
   const s = store.state;
   const baseCur = s.settings.baseCurrency || "RON";
   const byAccount = txAccountFilter !== "all";
-  let list = byAccount
+  const allMonths = byAccount || txAllMonths;
+  let list = allMonths
     ? store.getVisibleExpenses({ scope: s.scope })
     : store.getVisibleExpenses({ year: s.selectedYear, month: s.selectedMonth, scope: s.scope });
 
   if (byAccount) {
     list = list.filter((e) => (e.account || e.accountId) === txAccountFilter || (e.toAccount || e.destAccountId) === txAccountFilter);
-    list.sort((x, y) => String(y.date).localeCompare(String(x.date)));
   }
+  if (allMonths) list.sort((x, y) => String(y.date).localeCompare(String(x.date)));
   if (txDayFilter) {
     list = list.filter((e) => e.date === txDayFilter);
   }
@@ -652,7 +687,7 @@ function renderTransactions() {
       const accName = accBal ? accBal.name : store.getAccount(txAccountFilter)?.name || txAccountFilter;
       parts.push(`🏦 Cont: <strong>${esc(accName)}</strong>${accBal && accBal.visible !== false ? ` • Sold ${formatMoney(accBal.balance, accBal.currency)}` : ""} • toate lunile`);
     }
-    if (txCategoryFilter !== "all") parts.push(`🏷️ Categorie: <strong>${esc(store.getCategory(txCategoryFilter).name)}</strong> • ${MONTHS_RO[s.selectedMonth]} ${s.selectedYear}`);
+    if (txCategoryFilter !== "all") parts.push(`🏷️ Categorie: <strong>${esc(store.getCategory(txCategoryFilter).name)}</strong> • ${txAllMonths ? "toate lunile" : MONTHS_RO[s.selectedMonth] + " " + s.selectedYear}`);
     if (txDayFilter) parts.push(`📅 Ziua: <strong>${esc(txDayFilter)}</strong>`);
     activeFilterBar = `
       <div class="banner">
@@ -692,7 +727,7 @@ function renderTransactions() {
         </select>
       </div>
 
-      ${list.length ? `<div class="tx-list">${list.map((e) => renderTxRow(e, baseCur)).join("")}</div>` : `
+      ${list.length ? `<div class="tx-list">${renderTxListBody(list, baseCur, allMonths)}</div>` : `
         <div class="empty-state">
           <div class="big-ic">🔍</div>
           <div>Nicio tranzacție nu corespunde filtrelor selectate.</div>
@@ -1016,7 +1051,7 @@ function bindViewSpecificEvents() {
   const typeF = $("#tx-type-filter");
   if (typeF) typeF.onchange = (e) => { txTypeFilter = e.target.value; render(); };
   const catF = $("#tx-cat-filter");
-  if (catF) catF.onchange = (e) => { txCategoryFilter = e.target.value; render(); };
+  if (catF) catF.onchange = (e) => { txCategoryFilter = e.target.value; txAllMonths = false; render(); };
 
   const handleExport = async () => {
     try {
@@ -1271,6 +1306,49 @@ function openImportPreviewModal(fileName, report) {
       showToast(`Importat ${count} rânduri v4 valide! (${report.stagedRows.length} puse deoparte, ${report.duplicateRows.length} dubluri ignorate)`);
     };
   }
+}
+
+function openExpenseDetail(expenseId) {
+  const s = store.state;
+  const exp = s.expenses.find((e) => e.id === expenseId);
+  if (!exp) return;
+  const baseCur = s.settings.baseCurrency || "RON";
+  const type = exp.type || "cheltuiala";
+  const typeMeta = TX_TYPES[type] || TX_TYPES.cheltuiala;
+  const cat = exp.category ? store.getCategory(exp.category) : null;
+  const accId = exp.account || exp.accountId || "";
+  const toId = exp.toAccount || exp.destAccountId || "";
+  const acc = accId ? store.getAccount(accId) : null;
+  const toAcc = toId ? store.getAccount(toId) : null;
+  const canEdit = store.isOwnRecord(exp);
+  const row = (k, v) => v ? `<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text-muted)">${k}</span><span style="text-align:right">${v}</span></div>` : "";
+  const link = (attr, id, label) => `<button type="button" class="btn btn-sm btn-secondary" ${attr}="${esc(id)}">${label} →</button>`;
+  const amountTxt = formatMoney(exp.amount, exp.currency || baseCur) + (exp.currency && exp.currency !== baseCur ? ` (${formatMoney(exp.baseAmount, baseCur)})` : "");
+  const modal = $("#modal-main");
+  modal.innerHTML = `
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3 class="modal-title">👁️ Detalii înregistrare</h3>
+        <button class="close-btn" data-close-modal>✕</button>
+      </div>
+      <div>
+        ${row("Titlu", esc(exp.description || exp.title || exp.merchant || typeMeta.label))}
+        ${row("Tip", esc(typeMeta.label))}
+        ${row("Data", esc(exp.date))}
+        ${row("Sumă", esc(amountTxt))}
+        ${row("Comerciant", esc(exp.merchant || ""))}
+        ${row("Categorie", cat ? `${esc(cat.name)} ${link("data-detail-category", cat.id, "Toate tranzacțiile categoriei")}` : "")}
+        ${row("Cont", acc ? `${esc(acc.name)} ${link("data-detail-account", acc.id, "Tranzacțiile contului")}` : "")}
+        ${row("Cont destinație", toAcc ? `${esc(toAcc.name)} ${link("data-detail-account", toAcc.id, "Tranzacțiile contului")}` : "")}
+        ${row("Metodă plată", esc(exp.method || ""))}
+        ${row("Privat", exp.isPrivate ? "Da" : "")}
+      </div>
+      <div class="btn-row" style="margin-top:16px;justify-content:space-between">
+        <button type="button" class="btn btn-secondary" data-close-modal>Închide</button>
+        ${canEdit ? `<button type="button" class="btn btn-primary" data-detail-edit="${esc(exp.id)}">✏️ Editează</button>` : ""}
+      </div>
+    </div>`;
+  modal.classList.add("open");
 }
 
 function openExpenseModal(expenseId) {
