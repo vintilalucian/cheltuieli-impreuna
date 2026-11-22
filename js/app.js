@@ -549,7 +549,7 @@ function renderDashboard() {
         <h2 class="card-title">🏦 Conturi & Solduri (${activeAccounts.length})</h2>
         <button class="btn btn-sm btn-secondary" data-view="catalog">Gestionează</button>
       </div>
-      <div class="mini-card" style="margin-bottom:10px; display:block">
+      <div class="mini-card account-summary" style="margin-bottom:10px; display:block">
         <div style="display:flex; justify-content:space-between; font-weight:800"><span>Total conturi selectate</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(availableTotal, a.baseCur) : "–"}</span></div>
         <div style="display:flex; justify-content:space-between" class="card-sub"><span>Rezervat (exclus din selecție)</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(reservedTotal, a.baseCur) : "–"}</span></div>
         <div style="display:flex; justify-content:space-between" class="card-sub"><span>Total conturi cu sold cunoscut (${knownVisible.length})</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(totalAccounts, a.baseCur) : "–"}</span></div>
