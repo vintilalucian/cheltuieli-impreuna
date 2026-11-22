@@ -331,6 +331,7 @@ function render() {
   if (currentView === "dashboard") root.innerHTML = renderDashboard();
   else if (currentView === "transactions") root.innerHTML = renderTransactions();
   else if (currentView === "analytics") root.innerHTML = renderAnalytics();
+  else if (currentView === "accounts") root.innerHTML = renderAccounts();
   else if (currentView === "catalog") root.innerHTML = renderCatalog();
   else if (currentView === "settings") root.innerHTML = renderSettings();
 
@@ -353,6 +354,9 @@ function renderChrome() {
   document.querySelectorAll("[data-view]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === currentView);
   });
+
+  const fab = $("#fab-add");
+  if (fab) fab.hidden = currentView === "accounts";
 
   const p1Btn = $("#pill-p1");
   const p2Btn = $("#pill-p2");
@@ -507,17 +511,26 @@ function renderDashboard() {
         <div class="hero-label">${MONTHS_RO[s.selectedMonth]} ${s.selectedYear}</div>
         <div class="hero-label hero-count">${a.count} ${a.count === 1 ? "tranzacție" : "tranzacții"}${a.ledger && a.ledger.exceptionRows && a.ledger.exceptionRows.length ? ` (din care ${a.ledger.exceptionRows.length} fără echivalent, neincluse în sumă)` : ""}</div>
       </div>
-      <div class="hero-figures">
-        <div class="hero-metric tappable" data-insight-drill="net-expenses" role="button" tabindex="0" aria-label="Raport cheltuieli nete pentru ${MONTHS_RO[s.selectedMonth]}">
-          <div class="hero-label">Cheltuieli nete</div>
-          <div class="hero-amount">${formatMoney(a.total, a.baseCur)}</div>
-          <span class="hero-delta">${deltaText}</span>
+      <div class="hero-overview">
+        <div class="hero-period-metrics">
+          <div class="tappable" data-insight-drill="net-expenses" role="button" tabindex="0" aria-label="Raport cheltuieli nete pentru ${MONTHS_RO[s.selectedMonth]}">
+            <div class="hero-label">Cheltuieli nete · ${MONTHS_RO[s.selectedMonth]}</div>
+            <div class="hero-amount">${formatMoney(a.total, a.baseCur)}</div>
+          </div>
+          <div class="hero-period-small"><span>Venituri</span><strong>${formatMoney(a.ledger.venituri,a.baseCur)}</strong></div>
+          <div class="hero-period-small"><span>Medie / zi</span><strong>${formatMoney(a.dailyAvg,a.baseCur)}</strong></div>
+          <div class="hero-period-net tappable" data-insight-drill="balance" role="button" tabindex="0" aria-label="Raport balanță netă pentru ${MONTHS_RO[s.selectedMonth]}">
+            <div class="hero-label">Balanță netă · ${MONTHS_RO[s.selectedMonth]}</div>
+            <div class="hero-amount">${a.ledger.balantaNeta >= 0 ? "+" : ""}${formatMoney(a.ledger.balantaNeta,a.baseCur)}</div>
+            <div class="hero-caption">Venituri − cheltuieli</div>
+          </div>
         </div>
-        <div class="hero-metric tappable" data-insight-drill="balance" role="button" tabindex="0" aria-label="Raport balanță netă pentru ${MONTHS_RO[s.selectedMonth]}">
-          <div class="hero-label">Balanță netă</div>
-          <div class="hero-amount">${a.ledger.balantaNeta >= 0 ? "+" : ""}${formatMoney(a.ledger.balantaNeta, a.baseCur)}</div>
-          <div class="hero-caption">Venituri − cheltuieli</div>
-        </div>
+        <button class="hero-current" data-view="accounts" type="button" aria-label="Vezi toate conturile, incluse și excluse din banii disponibili">
+          <span class="hero-label">Bani disponibili</span>
+          <span class="hero-current-amount">${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(availableTotal,a.baseCur).replace(" "+a.baseCur,"") : "–"}</span>
+          <span class="hero-caption">${esc(a.baseCur)}</span>
+          <span class="hero-caption">Conturi selectate →</span>
+        </button>
       </div>
 
       ${a.monthlyBudget > 0 ? `
@@ -532,51 +545,40 @@ function renderDashboard() {
         </div>
       ` : ""}
 
-      <div class="hero-stats">
-        <div>
-          <div class="hero-stat-label">Venituri</div>
-          <div class="hero-stat-val">${formatMoney(a.ledger.venituri, a.baseCur)}</div>
-        </div>
-        <div>
-          <div class="hero-stat-label">Medie / zi</div>
-          <div class="hero-stat-val">${formatMoney(a.dailyAvg, a.baseCur)}</div>
-        </div>
-      </div>
+
     </section>
+
+
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">💡 Insights Automate</h2>
+          <button class="btn btn-sm btn-secondary" data-view="analytics">Toate →</button>
+        </div>
+        <div class="insights-list">
+          ${a.insights.slice(0, 2).map((ins) => `
+            <div class="insight-item ${ins.type}${ins.drill ? " tappable" : ""}" ${ins.drill ? `data-insight-drill="${esc(ins.drill.kind)}" data-insight-index="${esc(ins.drill.index === undefined ? "" : ins.drill.index)}" role="button" tabindex="0"` : ""}>
+              <div class="insight-icon">${ins.icon}</div>
+              <div>
+                <div class="insight-title">${esc(ins.title)}</div>
+                <div class="insight-text">${esc(ins.text)}</div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </section>
 
     <section class="card">
       <div class="card-header">
-        <h2 class="card-title">🏦 Conturi & Solduri (${activeAccounts.length})</h2>
-        <button class="btn btn-sm btn-secondary" data-view="catalog">Gestionează</button>
+        <h2 class="card-title">🧾 Ultimele Tranzacții</h2>
+        <button class="btn btn-sm btn-secondary" data-view="transactions">Vezi toate (${a.count})</button>
       </div>
-      <div class="mini-card account-summary" style="margin-bottom:10px; display:block">
-        <div style="display:flex; justify-content:space-between; font-weight:800"><span>Total conturi selectate</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(availableTotal, a.baseCur) : "–"}</span></div>
-        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Rezervat (exclus din selecție)</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(reservedTotal, a.baseCur) : "–"}</span></div>
-        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Total conturi cu sold cunoscut (${knownVisible.length})</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(totalAccounts, a.baseCur) : "–"}</span></div>
-        ${unknownBalCount ? `<div class="card-sub" style="margin-top:6px">⚠️ ${unknownBalCount} cont(uri) fără sold inițial setat: arată doar mișcările înregistrate, nu un sold, și nu intră în totaluri.</div>` : ""}
-        <div class="card-sub" style="margin-top:6px">${estimatedBaseTotal ? "Echivalent aproximativ la cursurile aplicației. " : ""}Calculat din soldurile conturilor (nu din buget sau venituri minus cheltuieli)${hiddenAccCount ? `; ${hiddenAccCount} cont(uri) personale ale celuilalt nu sunt incluse` : ""}.</div>
-      </div>
-      <div class="item-grid">
-        ${activeAccounts.map((acc) => `
-          <div class="mini-card${acc.visible === false ? "" : " tappable"}" ${acc.visible === false ? "" : `data-open-account="${esc(acc.id)}" role="button" tabindex="0" aria-label="Detalii cont ${esc(acc.name)}"`}>
-            <div class="mini-left">
-              <div class="mini-icon" style="background:var(--primary-soft); color:var(--primary)">${accountIcon(acc.type)}</div>
-              <div>
-                <div style="font-weight:700; font-size:0.86rem">${esc(acc.name)}</div>
-                <div class="card-sub">${esc(accOwnerLabel(acc.owner))} • ${esc(acc.type)}${acc.initialDate ? ` • din ${esc(acc.initialDate)}` : ""}${acc.includeInAvailable === false ? " • Rezervat" : ""}</div>
-                ${acc.visible !== false && acc.balanceKnown === false ? `<div class="card-sub" style="font-size:.78em;line-height:1.3;margin-top:2px">sold necunoscut • mișcări înreg.: ${formatMoney(acc.balance, acc.currency)} (nu este sold)${acc.unconvertedIn ? ` • +${acc.unconvertedIn} intrări fără sumă` : ""}${acc.reconciliationWarning ? `<br>${esc(acc.reconciliationWarning)}` : ""}</div>` : ""}
-            <div style="font-weight:700; font-size:0.88rem; color:${acc.visible === false ? "var(--text-muted)" : (acc.balance < 0 ? "var(--danger)" : "var(--text)")}">
-              ${acc.visible === false ? "🔒 Personal" : (acc.balanceKnown === false ? "" : (acc.balanceEstimated ? "≈ " : "") + formatMoney(acc.balance, acc.currency) + (acc.reconciledAt ? `<br><span class="card-sub" style="font-size:.78em;font-weight:500">aliniat TimelyBills ${esc(new Date(acc.reconciledAt).toLocaleString("ro-RO", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}))}</span>` : "") + (acc.unconvertedIn ? `<br><span class="card-sub" style="font-size:.78em;font-weight:500">${acc.unconvertedIn} intrări istorice fără sumă destinație</span>` : "") + (acc.estimatedIn ? `<br><span class="card-sub" style="white-space:nowrap;font-size:.8em">include ${acc.estimatedIn} estimate la curs</span>` : ""))}
-            </div>
-              </div>
-            </div>
-
-          </div>
-        `).join("")}
-      </div>
+      ${recent.length ? `<div class="tx-list">${recent.map((e) => renderTxRow(e, a.baseCur)).join("")}</div>` : `
+        <div class="empty-state">
+          <div class="big-ic">🛍️</div>
+          <div>Nu ai tranzacții în ${MONTHS_RO[s.selectedMonth]}. Apasă <strong>+</strong> pentru a adăuga!</div>
+        </div>
+      `}
     </section>
-
-    <div class="grid-2">
       ${singleMemberView() ? "" : `<section class="card">
         <div class="card-header">
           <h2 class="card-title">👥 Contribuție Cheltuieli Nete</h2>
@@ -604,37 +606,7 @@ function renderDashboard() {
         </div>
       </section>`}
 
-      <section class="card">
-        <div class="card-header">
-          <h2 class="card-title">💡 Insights Automate</h2>
-          <button class="btn btn-sm btn-secondary" data-view="analytics">Toate →</button>
-        </div>
-        <div class="insights-list">
-          ${a.insights.slice(0, 2).map((ins) => `
-            <div class="insight-item ${ins.type}${ins.drill ? " tappable" : ""}" ${ins.drill ? `data-insight-drill="${esc(ins.drill.kind)}" data-insight-index="${esc(ins.drill.index === undefined ? "" : ins.drill.index)}" role="button" tabindex="0"` : ""}>
-              <div class="insight-icon">${ins.icon}</div>
-              <div>
-                <div class="insight-title">${esc(ins.title)}</div>
-                <div class="insight-text">${esc(ins.text)}</div>
-              </div>
-            </div>
-          `).join("")}
-        </div>
-      </section>
-    </div>
 
-    <section class="card">
-      <div class="card-header">
-        <h2 class="card-title">🧾 Ultimele Tranzacții</h2>
-        <button class="btn btn-sm btn-secondary" data-view="transactions">Vezi toate (${a.count})</button>
-      </div>
-      ${recent.length ? `<div class="tx-list">${recent.map((e) => renderTxRow(e, a.baseCur)).join("")}</div>` : `
-        <div class="empty-state">
-          <div class="big-ic">🛍️</div>
-          <div>Nu ai tranzacții în ${MONTHS_RO[s.selectedMonth]}. Apasă <strong>+</strong> pentru a adăuga!</div>
-        </div>
-      `}
-    </section>
   `;
 }
 
@@ -872,46 +844,61 @@ function renderAnalytics() {
 // =========================================================================
 // 4. CONTURI, CATEGORII, COMERCIANȚI & VALUTE
 // =========================================================================
+function renderAccounts() {
+  const s = store.state;
+  const a = computeMonthlyAnalytics(store,s.selectedYear,s.selectedMonth,"all");
+  const activeAccounts = a.accountBalances;
+  const availVisible = activeAccounts.filter((acc) => !acc.archived && acc.visible !== false);
+  const sumBase = (list) => Math.round(list.reduce((t, acc) => t + (Number(acc.baseBalance) || 0), 0) * 100) / 100;
+  const knownVisible = availVisible.filter((acc) => acc.balanceKnown !== false);
+  const unknownBalCount = availVisible.length - knownVisible.length;
+  const estimatedBaseTotal = knownVisible.some(acc => acc.currency !== a.baseCur);
+  const totalAccounts = sumBase(knownVisible);
+  const reservedTotal = sumBase(knownVisible.filter((acc) => acc.includeInAvailable === false));
+  const availableTotal = Math.round((totalAccounts - reservedTotal) * 100) / 100;
+  const hiddenAccCount = activeAccounts.length - availVisible.length;
+
+  return `${renderStatusBanners()}
+    <section class="card">
+      <div class="card-header">
+        <h2 class="card-title">🏦 Conturi & Solduri (${activeAccounts.length})</h2>
+        <button class="btn btn-sm btn-primary" id="btn-add-account">+ Cont</button>
+      </div>
+      <div class="mini-card account-summary" style="margin-bottom:10px; display:block">
+        <div style="display:flex; justify-content:space-between; font-weight:800"><span>Total conturi selectate</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(availableTotal, a.baseCur) : "–"}</span></div>
+        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Conturi excluse</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(reservedTotal, a.baseCur) : "–"}</span></div>
+        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Total conturi cu sold cunoscut (${knownVisible.length})</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(totalAccounts, a.baseCur) : "–"}</span></div>
+        ${unknownBalCount ? `<div class="card-sub" style="margin-top:6px">⚠️ ${unknownBalCount} cont(uri) fără sold inițial setat: arată doar mișcările înregistrate, nu un sold, și nu intră în totaluri.</div>` : ""}
+        <div class="card-sub" style="margin-top:6px">${estimatedBaseTotal ? "Echivalent aproximativ la cursurile aplicației. " : ""}Calculat din soldurile conturilor (nu din buget sau venituri minus cheltuieli)${hiddenAccCount ? `; ${hiddenAccCount} cont(uri) personale ale celuilalt nu sunt incluse` : ""}.</div>
+      </div>
+      ${[{label:"Incluse în banii disponibili",items:activeAccounts.filter(acc => !acc.archived && acc.includeInAvailable !== false)}, {label:"Excluse din banii disponibili",items:activeAccounts.filter(acc => acc.archived || acc.includeInAvailable === false)}].map(group => `
+      <h3 class="account-group-title">${group.label} (${group.items.length})</h3>
+      <div class="item-grid">
+        ${group.items.map((acc) => `
+          <div class="mini-card account-card">
+            <div class="mini-left${acc.visible === false ? "" : " tappable"}" ${acc.visible === false ? "" : `data-open-account="${esc(acc.id)}" role="button" tabindex="0" aria-label="Detalii cont ${esc(acc.name)}"`}>
+              <div class="mini-icon" style="background:var(--primary-soft); color:var(--primary)">${accountIcon(acc.type)}</div>
+              <div>
+                <div style="font-weight:700; font-size:0.86rem">${esc(acc.name)}${acc.archived ? " (Arhivat)" : ""}</div>
+                <div class="card-sub">${esc(accOwnerLabel(acc.owner))} • ${esc(acc.type)}${acc.initialDate ? ` • din ${esc(acc.initialDate)}` : ""}${acc.includeInAvailable === false ? " • Exclus din total" : ""}</div>
+                ${acc.visible !== false && acc.balanceKnown === false ? `<div class="card-sub" style="font-size:.78em;line-height:1.3;margin-top:2px">sold necunoscut • mișcări înreg.: ${formatMoney(acc.balance, acc.currency)} (nu este sold)${acc.unconvertedIn ? ` • +${acc.unconvertedIn} intrări fără sumă` : ""}${acc.reconciliationWarning ? `<br>${esc(acc.reconciliationWarning)}` : ""}</div>` : ""}
+            <div style="font-weight:700; font-size:0.88rem; color:${acc.visible === false ? "var(--text-muted)" : (acc.balance < 0 ? "var(--danger)" : "var(--text)")}">
+              ${acc.visible === false ? "🔒 Personal" : (acc.balanceKnown === false ? "" : (acc.balanceEstimated ? "≈ " : "") + formatMoney(acc.balance, acc.currency) + (acc.reconciledAt ? `<br><span class="card-sub" style="font-size:.78em;font-weight:500">aliniat TimelyBills ${esc(new Date(acc.reconciledAt).toLocaleString("ro-RO", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}))}</span>` : "") + (acc.unconvertedIn ? `<br><span class="card-sub" style="font-size:.78em;font-weight:500">${acc.unconvertedIn} intrări istorice fără sumă destinație</span>` : "") + (acc.estimatedIn ? `<br><span class="card-sub" style="white-space:nowrap;font-size:.8em">include ${acc.estimatedIn} estimate la curs</span>` : ""))}
+            </div>
+              </div>
+            </div>
+            ${acc.visible !== false ? `<button class="icon-btn" data-edit-acc="${esc(acc.id)}" title="Editează cont" aria-label="Editează ${esc(acc.name)}">✏️</button>` : ""}
+          </div>
+        `).join("")}
+      </div>`).join("")}
+    </section>
+`;
+}
+
 function renderCatalog() {
   const s = store.state;
   const baseCur = s.settings.baseCurrency || "RON";
-  const balances = computeAccountBalances(
-    s.accounts || [],
-    store.getVisibleExpenses({ scope: "all" }),
-    s.currencies || [],
-    baseCur,
-    store.getActiveEmail()
-  );
-
   return `
-    <section class="card">
-      <div class="card-header">
-        <div>
-          <h2 class="card-title">🏦 Conturi v4 (${balances.length})</h2>
-          <div class="card-sub">Sold = sold inițial + venituri − cheltuieli ± transferuri/investiții ± ajustări</div>
-        </div>
-        <button class="btn btn-sm btn-primary" id="btn-add-account">+ Cont</button>
-      </div>
-      <div class="item-grid">
-        ${balances.map((acc) => `
-          <div class="mini-card">
-            <div class="mini-left">
-              <div class="mini-icon" style="background:var(--primary-soft); color:var(--primary)">${accountIcon(acc.type)}</div>
-              <div>
-                <div style="font-weight:700; font-size:0.86rem">${esc(acc.name)} ${acc.archived ? "(Arhivat)" : ""}</div>
-                <div class="card-sub">
-                  ${acc.visible === false
-                    ? `🔒 Personal (${esc(store.getPartnerName(acc.owner))})`
-                    : (acc.balanceKnown === false ? `Mișcări: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • sold inițial necunoscut${acc.unconvertedIn ? ` • ${acc.unconvertedIn} transfer(uri) primite fără sumă destinație, neconvertite` : ""}` : `Sold: <strong>${formatMoney(acc.balance, acc.currency)}</strong>${acc.reconciledAt ? ` • aliniat TimelyBills ${esc(new Date(acc.reconciledAt).toLocaleString("ro-RO"))}` : ""}${acc.estimatedIn ? ` • include ${acc.estimatedIn} transfer(uri) estimate la curs` : ""}${acc.unconvertedIn ? ` • ${acc.unconvertedIn} transfer(uri) primite fără sumă destinație, neconvertite` : ""} • Inițial: ${acc.initialBalance}${acc.initialDate ? ` (${esc(acc.initialDate)})` : ""}`) + ` • ${esc(accOwnerLabel(acc.owner))}`}
-                </div>
-              </div>
-            </div>
-            ${acc.visible !== false ? `<button class="icon-btn" data-edit-acc="${esc(acc.id)}" title="Editează cont">✏️</button>` : ""}
-          </div>
-        `).join("")}
-      </div>
-    </section>
-
     <section class="card">
       <div class="card-header">
         <div>
