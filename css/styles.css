@@ -1249,3 +1249,11 @@ button, input, select, textarea {
 @media(max-width:360px) {.bottom-nav .nav-item {font-size:.62rem; min-width:0;} .bottom-nav .nav-ic {font-size:1.1rem;}}
 
 .fab[hidden] {display:none;}
+
+/* Recurrences: consultation separate from editing, original notes never collapsed into labels. */
+.rr-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px}.rr-rule-head,.view-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}.rr-title{border:0;background:none;color:var(--text);font:inherit;font-size:1.1rem;font-weight:700;text-align:left;cursor:pointer;padding:0;overflow-wrap:anywhere}.rr-title:hover{text-decoration:underline}.rr-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:16px;margin:20px 0}.rr-facts span{display:block;font-size:12px;opacity:.7;margin-bottom:5px}.rr-facts strong{display:block;overflow-wrap:anywhere}.rr-note{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:inherit;line-height:1.65;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--bg)}.rr-error{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--danger,#b91c1c);font-size:14px}.rr-alert{border:2px solid var(--danger,#b91c1c)}.rr-inline{display:grid;grid-template-columns:80px minmax(0,1fr);gap:8px}.rr-wide,.rr-auto-fields{grid-column:1/-1}.rr-auto-fields{min-width:0;border:1px solid var(--border);border-radius:12px;padding:16px}.rr-confirm{display:flex;align-items:flex-start;gap:10px;line-height:1.5;margin-top:16px}.rr-confirm input{flex-shrink:0;margin-top:4px}.rr-rule p{overflow-wrap:anywhere}.rr-engine .btn-row{flex-wrap:wrap}.rr-auto-fields[hidden],#rr-task-field[hidden],#rr-target-field[hidden]{display:none}@media(max-width:520px){.view-head>.btn-row{width:100%;display:flex;flex-wrap:wrap}.rr-rule-head{gap:12px}.rr-auto-fields{padding:12px}.rr-note{padding:12px}}
+
+/* Recurrence controls must not look enabled before setup checks. */
+.rr-engine button:disabled { opacity:.42; cursor:not-allowed; }
+.rr-editor-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
+@media(max-width:700px){.rr-editor-grid{grid-template-columns:1fr;}}
