@@ -488,6 +488,7 @@ function renderDashboard() {
   const sumBase = (list) => Math.round(list.reduce((t, acc) => t + (Number(acc.baseBalance) || 0), 0) * 100) / 100;
   const knownVisible = availVisible.filter((acc) => acc.balanceKnown !== false);
   const unknownBalCount = availVisible.length - knownVisible.length;
+  const estimatedBaseTotal = knownVisible.some(acc => acc.currency !== a.baseCur);
   const totalAccounts = sumBase(knownVisible);
   const reservedTotal = sumBase(knownVisible.filter((acc) => acc.includeInAvailable === false));
   const availableTotal = Math.round((totalAccounts - reservedTotal) * 100) / 100;
@@ -544,11 +545,11 @@ function renderDashboard() {
         <button class="btn btn-sm btn-secondary" data-view="catalog">Gestionează</button>
       </div>
       <div class="mini-card" style="margin-bottom:10px; display:block">
-        <div style="display:flex; justify-content:space-between; font-weight:800"><span>Disponibil</span><span>${knownVisible.length ? formatMoney(availableTotal, a.baseCur) : "–"}</span></div>
-        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Rezervat (exclus din disponibil)</span><span>${knownVisible.length ? formatMoney(reservedTotal, a.baseCur) : "–"}</span></div>
-        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Total conturi cu sold cunoscut (${knownVisible.length})</span><span>${knownVisible.length ? formatMoney(totalAccounts, a.baseCur) : "–"}</span></div>
+        <div style="display:flex; justify-content:space-between; font-weight:800"><span>Total conturi selectate</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(availableTotal, a.baseCur) : "–"}</span></div>
+        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Rezervat (exclus din selecție)</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(reservedTotal, a.baseCur) : "–"}</span></div>
+        <div style="display:flex; justify-content:space-between" class="card-sub"><span>Total conturi cu sold cunoscut (${knownVisible.length})</span><span>${knownVisible.length ? (estimatedBaseTotal ? "≈ " : "") + formatMoney(totalAccounts, a.baseCur) : "–"}</span></div>
         ${unknownBalCount ? `<div class="card-sub" style="margin-top:6px">⚠️ ${unknownBalCount} cont(uri) fără sold inițial setat: arată doar mișcările înregistrate, nu un sold, și nu intră în totaluri.</div>` : ""}
-        <div class="card-sub" style="margin-top:6px">Calculat din soldurile conturilor (nu din buget sau venituri minus cheltuieli)${hiddenAccCount ? `; ${hiddenAccCount} cont(uri) personale ale celuilalt nu sunt incluse` : ""}.</div>
+        <div class="card-sub" style="margin-top:6px">${estimatedBaseTotal ? "Echivalent aproximativ la cursurile aplicației. " : ""}Calculat din soldurile conturilor (nu din buget sau venituri minus cheltuieli)${hiddenAccCount ? `; ${hiddenAccCount} cont(uri) personale ale celuilalt nu sunt incluse` : ""}.</div>
       </div>
       <div class="item-grid">
         ${activeAccounts.map((acc) => `
@@ -558,12 +559,13 @@ function renderDashboard() {
               <div>
                 <div style="font-weight:700; font-size:0.86rem">${esc(acc.name)}</div>
                 <div class="card-sub">${esc(accOwnerLabel(acc.owner))} • ${esc(acc.type)}${acc.initialDate ? ` • din ${esc(acc.initialDate)}` : ""}${acc.includeInAvailable === false ? " • Rezervat" : ""}</div>
-                ${acc.visible !== false && acc.balanceKnown === false ? `<div class="card-sub" style="font-size:.78em;line-height:1.3;margin-top:2px">sold necunoscut • mișcări înreg.: ${formatMoney(acc.balance, acc.currency)} (nu este sold)${acc.unconvertedIn ? ` • +${acc.unconvertedIn} intrări fără sumă` : ""}</div>` : ""}
+                ${acc.visible !== false && acc.balanceKnown === false ? `<div class="card-sub" style="font-size:.78em;line-height:1.3;margin-top:2px">sold necunoscut • mișcări înreg.: ${formatMoney(acc.balance, acc.currency)} (nu este sold)${acc.unconvertedIn ? ` • +${acc.unconvertedIn} intrări fără sumă` : ""}${acc.reconciliationWarning ? `<br>${esc(acc.reconciliationWarning)}` : ""}</div>` : ""}
+            <div style="font-weight:700; font-size:0.88rem; color:${acc.visible === false ? "var(--text-muted)" : (acc.balance < 0 ? "var(--danger)" : "var(--text)")}">
+              ${acc.visible === false ? "🔒 Personal" : (acc.balanceKnown === false ? "" : (acc.balanceEstimated ? "≈ " : "") + formatMoney(acc.balance, acc.currency) + (acc.reconciledAt ? `<br><span class="card-sub" style="font-size:.78em;font-weight:500">aliniat TimelyBills ${esc(new Date(acc.reconciledAt).toLocaleString("ro-RO", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}))}</span>` : "") + (acc.unconvertedIn ? `<br><span class="card-sub" style="font-size:.78em;font-weight:500">${acc.unconvertedIn} intrări istorice fără sumă destinație</span>` : "") + (acc.estimatedIn ? `<br><span class="card-sub" style="white-space:nowrap;font-size:.8em">include ${acc.estimatedIn} estimate la curs</span>` : ""))}
+            </div>
               </div>
             </div>
-            <div style="text-align:right; font-weight:800; font-size:0.88rem; color:${acc.visible === false ? "var(--text-muted)" : (acc.balance < 0 ? "var(--danger)" : "var(--text)")}">
-              ${acc.visible === false ? "🔒 Personal" : (acc.balanceKnown === false ? "" : formatMoney(acc.balance, acc.currency) + (acc.unconvertedIn ? `<br><span class="card-sub" style="white-space:nowrap;font-size:.8em">+${acc.unconvertedIn} intrări fără sumă</span>` : "") + (acc.estimatedIn ? `<br><span class="card-sub" style="white-space:nowrap;font-size:.8em">include ${acc.estimatedIn} estimate la curs</span>` : ""))}
-            </div>
+
           </div>
         `).join("")}
       </div>
@@ -894,7 +896,7 @@ function renderCatalog() {
                 <div class="card-sub">
                   ${acc.visible === false
                     ? `🔒 Personal (${esc(store.getPartnerName(acc.owner))})`
-                    : (acc.balanceKnown === false ? `Mișcări: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • sold inițial necunoscut${acc.unconvertedIn ? ` • ${acc.unconvertedIn} transfer(uri) primite fără sumă destinație, neconvertite` : ""}` : `Sold: <strong>${formatMoney(acc.balance, acc.currency)}</strong>${acc.estimatedIn ? ` • include ${acc.estimatedIn} transfer(uri) estimate la curs` : ""}${acc.unconvertedIn ? ` • ${acc.unconvertedIn} transfer(uri) primite fără sumă destinație, neconvertite` : ""} • Inițial: ${acc.initialBalance}${acc.initialDate ? ` (${esc(acc.initialDate)})` : ""}`) + ` • ${esc(accOwnerLabel(acc.owner))}`}
+                    : (acc.balanceKnown === false ? `Mișcări: <strong>${formatMoney(acc.balance, acc.currency)}</strong> • sold inițial necunoscut${acc.unconvertedIn ? ` • ${acc.unconvertedIn} transfer(uri) primite fără sumă destinație, neconvertite` : ""}` : `Sold: <strong>${formatMoney(acc.balance, acc.currency)}</strong>${acc.reconciledAt ? ` • aliniat TimelyBills ${esc(new Date(acc.reconciledAt).toLocaleString("ro-RO"))}` : ""}${acc.estimatedIn ? ` • include ${acc.estimatedIn} transfer(uri) estimate la curs` : ""}${acc.unconvertedIn ? ` • ${acc.unconvertedIn} transfer(uri) primite fără sumă destinație, neconvertite` : ""} • Inițial: ${acc.initialBalance}${acc.initialDate ? ` (${esc(acc.initialDate)})` : ""}`) + ` • ${esc(accOwnerLabel(acc.owner))}`}
                 </div>
               </div>
             </div>
@@ -1723,7 +1725,7 @@ function openAccountModal(accId) {
         <div class="toggle-row">
           <div>
             <div style="font-weight:700; font-size:0.88rem">Include în disponibil</div>
-            <div class="card-sub">Debifează pentru bani rezervați (taxe etc.): soldul rămâne vizibil, dar nu intră în Disponibil.</div>
+            <div class="card-sub">Debifează pentru bani rezervați (taxe etc.): soldul rămâne vizibil, dar nu intră în totalul conturilor selectate.</div>
           </div>
           <label class="switch">
             <input type="checkbox" id="acc-avail" ${acc && acc.includeInAvailable === false ? "" : "checked"}>
