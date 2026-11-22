@@ -518,7 +518,7 @@ button, input, select, textarea {
 
 .hero-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
   margin-top: 16px;
   padding-top: 14px;
@@ -1205,3 +1205,17 @@ button, input, select, textarea {
 .tappable { cursor: pointer; }
 .mini-card.tappable:active, .legend-row.tappable:active { opacity: 0.7; }
 .mini-card.tappable:focus-visible, .legend-row.tappable:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Equal weight for period spending and income-minus-spending, not account wealth. */
+.hero-figures { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; margin-top:14px; position:relative; z-index:1; }
+.hero-metric { min-width:0; border-radius:8px; }
+.hero-metric + .hero-metric { border-left:1px solid rgba(255,255,255,.25); padding-left:16px; }
+.hero-figures .hero-amount { font-size:clamp(1.12rem,5.2vw,2.35rem); line-height:1.18; overflow-wrap:break-word; }
+.hero-caption { font-size:.72rem; opacity:.88; line-height:1.35; }
+.hero-count { text-align:right; max-width:58%; }
+.hero-figures .hero-delta { font-size:.69rem; border-radius:8px; padding:3px 6px; }
+@media (max-width:360px) {
+  .hero-figures { gap:12px; }
+  .hero-metric + .hero-metric { padding-left:12px; }
+  .hero-figures .hero-amount { font-size:1rem; }
+}
