@@ -233,7 +233,8 @@ export class Store {
     if (acc.visible === false) return false;
     const owner = normalizeAccountOwner(acc.owner);
     const me = this.getActiveEmail();
-    return owner === SHARED_OWNER || owner === me || owner === this.state.activePartner;
+    return owner === SHARED_OWNER || owner === me || owner === this.state.activePartner ||
+      (acc.accessSnapshot?.coadmin === true && String(acc.accessSnapshot.viewer || "").toLowerCase() === me);
   }
 
   setTheme(theme) {
