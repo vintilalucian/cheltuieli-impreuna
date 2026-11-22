@@ -1219,3 +1219,12 @@ button, input, select, textarea {
   .hero-metric + .hero-metric { padding-left:12px; }
   .hero-figures .hero-amount { font-size:1rem; }
 }
+
+/* On phones keep the summary's amounts in a clear left column, outside the FAB lane. */
+@media (max-width:520px) {
+  .account-summary { padding-right:76px; }
+  .account-summary > div { display:block !important; }
+  .account-summary > div > span { display:block; }
+  .account-summary > div > span + span { margin-top:2px; }
+  .account-summary > div + div { margin-top:8px; }
+}
