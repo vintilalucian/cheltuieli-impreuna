@@ -159,7 +159,7 @@ export class Store {
     this.listeners.forEach((fn) => fn(this.state));
   }
 
-  persist() {
+  persist(strict = false) {
     const toSave = {
       connection: {
         webAppUrl: this.state.connection.webAppUrl,
@@ -185,7 +185,12 @@ export class Store {
       failedQueue: this.state.failedQueue,
       isDemoMode: this.state.isDemoMode
     };
-    safeSetStorage(STORAGE_KEY, toSave);
+    if (strict) {
+      if (typeof localStorage === "undefined") throw new Error("Stocarea locală nu este disponibilă. Formularul rămâne deschis.");
+      const encoded = JSON.stringify(toSave);
+      localStorage.setItem(STORAGE_KEY, encoded);
+      if (localStorage.getItem(STORAGE_KEY) !== encoded) throw new Error("Coada locală nu a putut fi verificată. Formularul rămâne deschis.");
+    } else safeSetStorage(STORAGE_KEY, toSave);
   }
 
   isConnected() {
@@ -373,7 +378,25 @@ export class Store {
     }
   }
 
-  async addExpense(data) {
+  commitFinancialLocal(record, op, { replaceIndex = null, merchant = "", category = "" } = {}) {
+    const before = { expenses: this.state.expenses, pendingQueue: this.state.pendingQueue, merchants: this.state.merchants };
+    this.state.expenses = [...this.state.expenses];
+    if (replaceIndex === null) this.state.expenses.unshift(record);
+    else this.state.expenses[replaceIndex] = record;
+    if (op) this.state.pendingQueue = [...this.state.pendingQueue, op];
+    if (merchant) this.rememberMerchantLocal(merchant, category);
+    try { this.persist(true); }
+    catch (error) { Object.assign(this.state, before); throw error; }
+    this.listeners.forEach(fn => fn(this.state));
+  }
+
+  async finishFinancialSave(background) {
+    if (!this.isConnected()) return;
+    if (background) { this.flushQueue().catch(error => { this.state.lastError = error.message; this.emit(); }); return; }
+    await this.flushQueue();
+  }
+
+  async addExpense(data, { background = false } = {}) {
     const now = new Date().toISOString();
     const type = normalizeRecordType(data.type || "cheltuiala") || String(data.type || "");
     const account = String(data.account ?? data.accountId ?? "").trim();
@@ -430,22 +453,16 @@ export class Store {
     }
     tx.baseMismatch = check.baseMismatch;
 
-    this.state.expenses.unshift(tx);
-    if ((type === "cheltuiala" || type === "venit") && merchant) {
-      this.rememberMerchantLocal(merchant, category);
-    }
-    this.emit();
-
-    if (this.isConnected()) {
-      await this.enqueueAndFlush({ type: "addExpense", expense: tx });
-    }
+    this.commitFinancialLocal(tx, this.isConnected() ? { type: "addExpense", expense: tx } : null,
+      { merchant: (type === "cheltuiala" || type === "venit") ? merchant : "", category });
+    await this.finishFinancialSave(background);
     return tx;
   }
 
   /**
    * Creează un transfer pe UN SINGUR RÂND v4 (Cont sursă + Cont destinație + Sumă destinație opțională).
    */
-  async addTransfer(params) {
+  async addTransfer(params, { background = false } = {}) {
     const baseCurrency = this.state.settings.baseCurrency || "RON";
     const srcAcc = this.getAccount(params.account || params.sourceAccountId);
     const sCur = String(params.currency || params.sourceCurrency || (srcAcc && srcAcc.currency) || baseCurrency).toUpperCase();
@@ -466,16 +483,12 @@ export class Store {
       pendingSync: this.isConnected()
     };
 
-    this.state.expenses.unshift(transfer);
-    this.emit();
-
-    if (this.isConnected()) {
-      await this.enqueueAndFlush({ type: "addTransfer", transfer });
-    }
+    this.commitFinancialLocal(transfer, this.isConnected() ? { type: "addTransfer", transfer } : null);
+    await this.finishFinancialSave(background);
     return transfer;
   }
 
-  async updateExpense(id, updates, expectedVersion = null) {
+  async updateExpense(id, updates, expectedVersion = null, { background = false } = {}) {
     const idx = this.state.expenses.findIndex((e) => e.id === id);
     if (idx === -1) return null;
     const existing = this.state.expenses[idx];
@@ -517,16 +530,10 @@ export class Store {
     }
     updated.baseMismatch = check.baseMismatch;
 
-    this.state.expenses[idx] = updated;
-    this.emit();
-
-    if (this.isConnected()) {
-      await this.enqueueAndFlush({
-        type: "updateExpense",
-        expense: updated,
-        expectedUpdatedAt: expectedModified
-      });
-    }
+    this.commitFinancialLocal(updated, this.isConnected() ? {
+      type: "updateExpense", expense: updated, expectedUpdatedAt: expectedModified
+    } : null, { replaceIndex: idx });
+    await this.finishFinancialSave(background);
     return updated;
   }
 
