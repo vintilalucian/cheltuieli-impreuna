@@ -13,7 +13,7 @@ export function formatMoney(amount, currencySymbolOrCode = "RON") {
 export function computeMonthlyAnalytics(store, year, month, scope = "all") {
   const baseCur = store.state.settings.baseCurrency || "RON";
   const allVisibleMonth = store.getVisibleExpenses({ year, month, scope });
-  const ledger = computeLedgerSummary(allVisibleMonth);
+  const ledger = computeLedgerSummary(allVisibleMonth, { baseCurrency: store.state.isDemoMode ? null : baseCur });
 
   // Solduri conturi calculate conform formulei v4 (respectând vizibilitatea Proprietar email vs comun)
   const allVisible = store.getVisibleExpenses({ scope: "all" });
@@ -32,7 +32,7 @@ export function computeMonthlyAnalytics(store, year, month, scope = "all") {
     month: prevDate.getMonth(),
     scope
   });
-  const prevLedger = computeLedgerSummary(prevTransactions);
+  const prevLedger = computeLedgerSummary(prevTransactions, { baseCurrency: store.state.isDemoMode ? null : baseCur });
 
   const total = ledger.cheltuieliNete;
   const prevTotal = prevLedger.cheltuieliNete;
@@ -214,6 +214,16 @@ function buildInsights(ctx) {
       icon: "🔎",
       title: "Verificare integritate date",
       text: `${ledger.mismatchRows.length} rând(uri) cu discrepanță Sumă (bază) vs Sumă × Curs, ${ledger.invalidRows.length} rând(uri) invalide excluse din totaluri.`
+    });
+  }
+
+  if ((ledger.exceptionRows || []).length > 0) {
+    list.push({
+      type: "warning",
+      icon: "💱",
+      drill: { kind: "exception" },
+      title: "Tranzacții fără echivalent verificat",
+      text: `${ledger.exceptionRows.length} tranzacție(ii) în altă monedă nu au un echivalent ${baseCur} din sursă și nu intră în totaluri. Nu folosim cursul din tabela Valute ca înlocuitor.`
     });
   }
 
