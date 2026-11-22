@@ -306,7 +306,7 @@ function readReconciliation(r) {
 export function buildReconciliationSource(account, transactions, currencies, baseCurrency, target, at) {
   if (!Number.isFinite(target) || !Number.isFinite(Date.parse(at))) throw new Error("Invalid reconciliation target/time");
   const scope = reconciliationScope(transactions, account.id, at);
-  const before = computeAccountBalances([account], scope, currencies, baseCurrency, null, {skipReconciliation:true})[0].balance;
+  const before = computeAccountBalances([account], scope, currencies, baseCurrency, null, {skipReconciliation:true,skipServerSnapshot:true})[0].balance;
   return RECONCILIATION_PREFIX + JSON.stringify({account:account.id,currency:account.currency,target:round2(target),before,at,fingerprint:reconciliationFingerprint(account,scope)});
 }
 
@@ -418,11 +418,42 @@ export function computeAccountBalances(accounts, transactions, currencies = [], 
     }
   }
 
+  // A server snapshot includes private foreign movements without disclosing their rows.
+  // Use it only for its authenticated viewer and the exact visible-row state it accompanied.
+  const snapshotViewer = viewerEmail ? String(viewerEmail).trim().toLowerCase() : null;
+  if (!options.skipServerSnapshot && snapshotViewer) {
+    for (const acc of map.values()) {
+      const snapshot = acc.serverBalanceSnapshot;
+      if (!snapshot || snapshot.schema !== 1 || snapshot.viewer !== snapshotViewer) continue;
+      const relevant = (transactions || []).filter(raw => {
+        const row = normalizeTx(raw);
+        return row && (row.account === acc.id || row.toAccount === acc.id);
+      });
+      const currentFingerprint = reconciliationFingerprint(acc, relevant);
+      if (snapshot.visibleFingerprint !== currentFingerprint) {
+        if (Number.isFinite(snapshot.balance)) acc.balance = snapshot.balance;
+        acc.balanceKnown = false;
+        acc.reconciliationWarning = 'Operații locale sau istoric schimbat. Soldul complet se confirmă după sincronizare.';
+        acc.serverBalancePending = true;
+        continue;
+      }
+      if (!Number.isFinite(snapshot.balance) || !Number.isFinite(snapshot.baseBalance)) continue;
+      acc.balance = snapshot.balance;
+      acc.balanceKnown = snapshot.balanceKnown === true;
+      acc.balanceEstimated = snapshot.balanceEstimated === true;
+      acc.reconciliationWarning = snapshot.reconciliationWarning || '';
+      acc.reconciledAt = snapshot.reconciledAt || '';
+      acc.estimatedIn = Number(snapshot.estimatedIn) || 0;
+      acc.unconvertedIn = Number(snapshot.unconvertedIn) || 0;
+      acc.serverBalanceApplied = true;
+    }
+  }
+
   const me = viewerEmail ? String(viewerEmail).trim().toLowerCase() : null;
   return Array.from(map.values()).map((acc) => {
     const rounded = round2(acc.balance);
     const baseBalance = round2(rounded * (rates[acc.currency] || 1));
-    const visible = me ? (acc.owner === SHARED_OWNER || acc.owner === me) : (acc.visible ?? true);
+    const visible = me ? (acc.owner === SHARED_OWNER || acc.owner === me || (acc.accessSnapshot?.viewer === me && acc.accessSnapshot?.coadmin === true)) : (acc.visible ?? true);
     if (!visible) {
       return {
         id: acc.id,
