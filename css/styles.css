@@ -1014,7 +1014,7 @@ button, input, select, textarea {
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   z-index: 30;
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
@@ -1262,3 +1262,5 @@ button, input, select, textarea {
 #exp-new-category [hidden] { display: none !important; }
 #exp-new-category .btn:disabled { opacity: .45; cursor: not-allowed; }
 #exp-new-category-status { overflow-wrap: anywhere; line-height: 1.5; }
+
+@media(max-width:430px) {.bottom-nav .nav-item {font-size:.60rem; min-width:0; padding-left:0; padding-right:0;} .bottom-nav .nav-ic {font-size:1.15rem;}}
