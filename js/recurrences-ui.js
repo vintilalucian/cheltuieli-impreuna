@@ -1,74 +1,148 @@
-import { readRecurrences, previewRecurrences, saveRecurrence, setRecurrenceEngine } from './sheets-api.js';
+import { readRecurrences, saveRecurrence, skipRecurrenceOccurrence, savePushSubscription, removePushSubscription } from './sheets-api.js';
+import { createTransactionSaveSession } from './transaction-save.js';
+import { store } from './store.js';
 
+// Review-before-post. A due occurrence is only a card. Nothing reaches the ledger until the user taps "Înregistrează",
+// and then it goes through the same save pipeline as a manual entry, with a stable ID and source for the occurrence.
 const esc = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const labels = {draft:'Ciornă',active:'Pregătită',paused:'În pauză',finished:'Încheiată'};
 const unitLabel = {week:'săptămână',month:'lună',year:'an'};
-const date = s => s ? new Intl.DateTimeFormat('ro-RO',{dateStyle:'medium',timeZone:'Europe/Brussels'}).format(new Date(s+'T12:00:00Z')) : 'Fără altă scadență';
-const when = s => s ? new Intl.DateTimeFormat('ro-RO',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Brussels'}).format(new Date(s)) : 'Încă neverificată';
-const money = r => new Intl.NumberFormat('ro-RO',{style:'currency',currency:r.currency || 'EUR'}).format(Number(r.amount)||0);
+const typeLabel = {cheltuiala:'Cheltuială',venit:'Venit',transfer:'Transfer'};
+const fmtDate = s => s ? new Intl.DateTimeFormat('ro-RO',{dateStyle:'medium',timeZone:'Europe/Brussels'}).format(new Date(s+'T12:00:00Z')) : 'Fără altă scadență';
+const money = (n,c) => { try { return new Intl.NumberFormat('ro-RO',{style:'currency',currency:c||'EUR'}).format(Number(n)||0); } catch { return `${n} ${c||''}`; } };
+const daysLate = (today,date) => Math.round((Date.parse(today+'T12:00:00Z')-Date.parse(date+'T12:00:00Z'))/86400000);
+let pendingCount = 0;
+export const getPendingReviewCount = () => pendingCount;
+const urlKey = k => { const p='='.repeat((4-k.length%4)%4), b=(k+p).replace(/-/g,'+').replace(/_/g,'/'), r=atob(b); return Uint8Array.from([...r].map(ch=>ch.charCodeAt(0))); };
+
 export function createRecurrenceView({ context, refresh, notify }) {
-  let data=null, error='', busy=false, selected='', editing=false, preview=null, draft=null, ownerKey='', epoch=0;
+  let data=null, error='', busy=false, selected='', editing=false, draft=null, ownerKey='', epoch=0;
+  const drafts={}, cardErrors={}, done=new Set(), sessions={};
   const connected = () => Boolean(context().connection.webAppUrl && context().connection.pin && !context().isDemoMode);
   const auth = () => [context().connection.webAppUrl, context().connection.pin];
+  const accounts = () => (context().accounts||[]).filter(a=>!a.archived && a.status!=='arhivat');
+  const accObj = id => (context().accounts||[]).find(a=>a.id===id);
+  const accountName = id => accObj(id)?.name || id || 'Neselectat';
   const rule = () => data?.rules?.find(r=>r.id===selected);
-  const accountName = id => context().accounts.find(a=>a.id===id)?.name || id || 'Neselectat';
-  function identity() { const c=context(); return [c.connection.webAppUrl,c.connection.pin,c.isDemoMode,c.activePartner||'',c.activeEmail||''].join('|'); }
-  function syncOwner() { const key=identity(); if(key!==ownerKey){ownerKey=key;epoch++;data=null;error='';busy=false;selected='';editing=false;preview=null;draft=null;} }
-  async function request(action,...args) { syncOwner(); const token=epoch, credentials=auth(), result=await action(...credentials,...args); syncOwner(); if(token!==epoch)throw Object.assign(new Error('Conexiunea s-a schimbat.'),{stale:true}); return result; }
+  const identity = () => { const c=context(); return [c.connection.webAppUrl,c.connection.pin,c.isDemoMode,c.activePartner||'',c.activeEmail||''].join('|'); };
+  function syncOwner() { const key=identity(); if(key!==ownerKey){ownerKey=key;epoch++;data=null;error='';busy=false;selected='';editing=false;draft=null;Object.keys(drafts).forEach(k=>delete drafts[k]);done.clear();pendingCount=0;} }
+  async function request(action,...args) { syncOwner(); const token=epoch, result=await action(...auth(),...args); syncOwner(); if(token!==epoch)throw Object.assign(new Error('Conexiunea s-a schimbat.'),{stale:true}); return result; }
+  function setData(state) { data=state; pendingCount=pendingItems().length; }
   function fail(e) { error=e.message; notify('Recurențe: '+error,5500); }
   async function perform(fn) { syncOwner(); if(busy)return; const token=epoch; busy=true;error='';refresh();try{await fn();}catch(e){if(!e.stale&&token===epoch)fail(e);}finally{if(token===epoch){busy=false;refresh();}} }
-  async function load() {
-    syncOwner(); if(!connected())return;
-    return perform(async()=>{const result=await request(readRecurrences);data=result.recurrenceState;});
+  async function load() { syncOwner(); if(!connected())return; return perform(async()=>{setData((await request(readRecurrences)).recurrenceState);}); }
+  const known = id => (context().expenses||[]).some(x=>x.id===id) || (context().pendingQueue||[]).some(o=>(o.op||o).expense?.id===id || (o.op||o).transfer?.id===id);
+  function pendingItems() { return (data?.review||[]).filter(i=>!done.has(i.key) && !known(i.id)); }
+
+  function reviewCard(i) {
+    const d=drafts[i.key]||(drafts[i.key]={amount:i.amount,account:accObj(i.account)?accObj(i.account).id:'',toAccount:accObj(i.toAccount)?i.toAccount:'',date:i.date});
+    const late=daysLate(data.today,i.date), cls=i.state==='today'?'rr-due-today':'rr-due-overdue';
+    const label=i.state==='today'?'Azi':`Întârziat ${late} ${late===1?'zi':'zile'}`;
+    const opts=(sel,skip)=>'<option value="">Alege contul</option>'+accounts().filter(a=>a.id!==skip).map(a=>`<option value="${esc(a.id)}" ${sel===a.id?'selected':''}>${esc(a.name)} (${esc(a.currency)})</option>`).join('');
+    const cur=accObj(d.account)?.currency||i.currency, k=esc(i.key);
+    return `<article class="card rr-review-card ${cls}" data-card="${k}"><div class="rr-rule-head"><div><strong class="rr-title">${esc(i.name)}</strong><div class="card-sub">${esc(typeLabel[i.type]||i.type)} · scadență ${esc(fmtDate(i.date))}</div></div><span class="badge">${esc(label)}</span></div>`+
+      (i.note?`<p class="rr-note" style="white-space:pre-wrap">${esc(i.note)}</p>`:'')+
+      `<div class="form-grid rr-editor-grid"><div class="field"><label>Sumă (<span data-cur="${k}">${esc(cur)}</span>)</label><input class="input" inputmode="decimal" data-f="amount" data-k="${k}" value="${esc(d.amount)}"></div>`+
+      `<div class="field"><label>${i.type==='transfer'?'Din contul':'Cont'}</label><select class="input" data-f="account" data-k="${k}">${opts(d.account)}</select></div>`+
+      (i.type==='transfer'?`<div class="field"><label>În contul</label><select class="input" data-f="toAccount" data-k="${k}">${opts(d.toAccount,d.account)}</select></div>`:'')+
+      `<div class="field"><label>Data înregistrării</label><input class="input" type="date" data-f="date" data-k="${k}" value="${esc(d.date)}"></div></div>`+
+      (i.currency!==cur?`<p class="card-sub">Suma sugerată era în ${esc(i.currency)}. Contul ales este în ${esc(cur)}: verifică suma.</p>`:'')+
+      (cardErrors[i.key]?`<p class="rr-error" role="alert">${esc(cardErrors[i.key])}</p>`:'')+
+      `<div class="btn-row"><button class="btn btn-primary" data-rr-post="${k}" ${busy?'disabled':''}>Înregistrează</button><button class="btn btn-secondary" data-rr-skip="${k}" ${busy?'disabled':''}>Omite această scadență</button></div></article>`;
   }
-  function header() { return `<div class="view-head"><div><h1>Recurențe</h1><p class="card-sub">Evidență automată pentru sume fixe. Mementourile rămân în Google Tasks.</p></div><div class="btn-row"><button class="btn btn-secondary" id="rr-refresh" ${busy?'disabled':''}>Reîncarcă</button><button class="btn btn-primary" id="rr-new" ${busy||!data?'disabled':''}>Adaugă recurență</button></div></div>`; }
-  function engine() {
-    const e=data.engine || {}, late=!e.lastScheduledAt || Date.now()-Date.parse(e.lastScheduledAt)>2*3600000;
-    const warning=Boolean(e.lastError || (e.enabled && late));
-    const title=warning?'Necesită atenție':e.enabled?'Motor pornit':e.triggerId?'Programare în test':'Motor oprit';
-    return `<section class="card rr-engine ${warning?'rr-alert':''}"><h2 class="card-title">${esc(title)}</h2><p>${e.enabled?'Înregistrările aprobate sunt procesate pe server, fără să ții aplicația deschisă.':'Nu se creează automat nicio tranzacție. Salvarea unei reguli nu pornește motorul.'}</p><div class="rr-facts"><div><span>Ultima verificare</span><strong>${esc(when(e.lastAttempt))}</strong></div><div><span>Ultima verificare reușită</span><strong>${esc(when(e.lastSuccess))}</strong></div><div><span>Ultima execuție programată</span><strong>${esc(when(e.lastScheduledAt))}</strong></div><div><span>Fus orar</span><strong>Europe/Brussels</strong></div></div>${e.lastError?`<p class="rr-error" role="alert">${esc(e.lastError)}</p>`:''}${late&&e.enabled?'<p class="rr-error" role="alert">Verificarea serverului a întârziat. Nu presupune că o scadență a fost înregistrată.</p>':''}<p class="card-sub">Înregistrarea contabilă nu confirmă plata la bancă și nu plasează ordine de investiții. Ora verificării serverului poate varia; nu este o alarmă la minut fix.</p><div class="btn-row"><button class="btn btn-secondary" id="rr-preview" ${busy?'disabled':''}>Previzualizare fără scriere</button><button class="btn ${e.enabled?'btn-secondary':'btn-primary'}" id="rr-engine" ${busy||(!e.enabled&&(!e.triggerId||!e.guardVerified))?'disabled':''}>${e.enabled?'Oprește motorul':'Pornește motorul'}</button></div>${!e.guardVerified?'<p class="card-sub">Pornirea rămâne blocată până la testarea programării și a alertei de eroare. Nicio regulă nu este activată prin simpla afișare a acestei pagini.</p>':''}</section>`;
+  function pushSection() {
+    const p=data.push||{}, supported='Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+    let msg, btn='';
+    if(!supported) msg='Acest browser nu permite notificări de la aplicație. Pe iPhone, instalează mai întâi aplicația pe ecranul principal.';
+    else if(!p.relayConfigured||!p.vapidPublicKey) msg='Serviciul de notificări nu este încă pornit pe server.';
+    else if(Notification.permission==='denied') msg='Notificările sunt blocate pentru aplicație în setările telefonului.';
+    else if(p.devices>0 && Notification.permission==='granted') { msg=`Notificările de seară sunt active (${p.devices} ${p.devices===1?'dispozitiv':'dispozitive'}). Primești un mesaj în jurul orei 19 doar când ai scadențe de verificat.`; btn='<button class="btn btn-secondary" id="rr-push-off">Oprește pe acest telefon</button>'; }
+    else { msg='Primești seara, în jurul orei 19, o notificare doar când ai scadențe de verificat.'; btn='<button class="btn btn-primary" id="rr-push-on">Activează notificările</button>'; }
+    return `<section class="card"><h2 class="card-title">Notificări</h2><p>${esc(msg)}</p>${btn}</section>`;
   }
-  function cards() {
-    if(!data.rules.length)return '<section class="card"><h2 class="card-title">Nicio regulă adăugată</h2><p>Nu presupunem că facturile simbolice sunt cheltuieli fixe. Adaugă numai regulile verificate și păstrează notițele originale.</p></section>';
-    return `<div class="rr-list">${data.rules.map(r=>`<article class="card rr-rule"><div class="rr-rule-head"><button class="rr-title" data-rr-open="${esc(r.id)}">${esc(r.name)}</button><span class="badge">${r.mode==='tasks'?(r.taskLink?'Referință Tasks':'Memento de legat în Tasks'):esc(labels[r.status]||r.status)}</span></div><p>${r.mode==='tasks'?'Memento, fără înregistrare contabilă automată':`${esc(money(r))} · ${r.type==='transfer'?'transfer':'cheltuială fixă'}`}</p><p class="card-sub">La fiecare ${esc(r.interval)} ${esc(unitLabel[r.unit])} · Următoarea: ${esc(date(r.nextDate))}</p>${r.readinessError?`<p class="rr-error">${esc(r.readinessError)}</p>`:''}${r.lastError?`<p class="rr-error">${esc(r.lastError)}</p>`:''}${r.mode==='auto'&&r.status==='active'&&!data.engine.enabled?'<p class="card-sub">Regulă pregătită; motorul este oprit.</p>':''}<div class="btn-row"><button class="btn btn-sm btn-secondary" data-rr-open="${esc(r.id)}">Consultă</button><button class="btn btn-sm btn-secondary" data-rr-edit="${esc(r.id)}">Modifică</button></div></article>`).join('')}</div>`;
+  function header() { return `<div class="view-head"><div><h1>Recurențe</h1><p class="card-sub">La scadență apare un card de verificat. Nimic nu intră în evidență până nu apeși Înregistrează.</p></div><div class="btn-row"><button class="btn btn-secondary" id="rr-refresh" ${busy?'disabled':''}>Reîncarcă</button><button class="btn btn-primary" id="rr-new" ${busy||!data?'disabled':''}>Adaugă recurență</button></div></div>`; }
+  function rulesList() {
+    const rules=(data.rules||[]).filter(r=>r.mode==='review');
+    if(!rules.length) return '<section class="card"><h2 class="card-title">Nicio recurență adăugată</h2><p>Adaugă o recurență ca să primești carduri de verificat la scadență.</p></section>';
+    return `<h2 class="card-title">Recurențe programate</h2><div class="rr-list">${rules.map(r=>`<article class="card rr-rule"><div class="rr-rule-head"><button class="rr-title" data-rr-open="${esc(r.id)}">${esc(r.name)}</button><span class="badge">${r.status==='active'?'Activă':r.status==='paused'?'În pauză':esc(r.status)}</span></div><p>${esc(money(r.amount,r.currency))} · la ${r.interval>1?r.interval+' ':''}${esc(unitLabel[r.unit]||r.unit)} · următoarea: ${esc(fmtDate(r.nextDate))}</p></article>`).join('')}</div>`;
   }
   function detail(r) {
-    const taskUrl=r.taskLink&&/^https:\/\/tasks\.google\.com\/task\//.test(r.taskLink)?r.taskLink:'';
-    return `<section class="card"><div class="rr-rule-head"><h2 class="card-title">${esc(r.name)}</h2><button class="btn btn-secondary" id="rr-back">Înapoi</button></div><div class="rr-facts"><div><span>Mod</span><strong>${r.mode==='tasks'?(taskUrl?'Referință în Tasks':'Memento de legat în Tasks'):'Evidență automată'}</strong></div><div><span>Stare</span><strong>${r.mode==='tasks'?'Se verifică în Google Tasks':esc(labels[r.status]||r.status)}</strong></div><div><span>Următoarea scadență</span><strong>${esc(date(r.nextDate))}</strong></div>${r.mode==='auto'?`<div><span>Sumă nativă</span><strong>${esc(money(r))}</strong></div><div><span>Cont sursă</span><strong>${esc(accountName(r.account))}</strong></div>${r.type==='transfer'?`<div><span>Cont destinație</span><strong>${esc(accountName(r.toAccount))}</strong></div>`:''}`:''}<div><span>Prima scadență / ancoră</span><strong>${esc(date(r.startDate))}</strong></div><div><span>Final</span><strong>${r.endDate?esc(date(r.endDate)):r.maxOccurrences?esc(r.maxOccurrences)+' apariții':'Până la oprirea regulii'}</strong></div><div><span>Ultima înregistrare contabilă</span><strong>${r.lastPosted?esc(date(r.lastPosted)):'Nicio înregistrare'}</strong></div></div>${r.readinessError||r.lastError?`<p class="rr-error" role="alert">${esc(r.readinessError||r.lastError)}</p>`:''}<h3>Notă / șablon original</h3><pre class="rr-note">${esc(r.note||'Fără notă.')}</pre>${r.sourceLabel?`<p class="card-sub">Referință: ${esc(r.sourceLabel)}</p>`:''}${taskUrl?`<p><a class="btn btn-secondary" href="${esc(taskUrl)}" target="_blank" rel="noopener">Deschide taskul existent</a></p>`:''}${r.mode==='tasks'?'<p class="card-sub">Această referință nu creează, nu oprește și nu bifează taskul. Nu confirmă încasarea. Data, ora și repetarea mementoului se verifică în Google Tasks.</p>':''}<div class="btn-row"><button class="btn btn-primary" data-rr-edit="${esc(r.id)}">Modifică regula</button>${r.mode==='auto'&&r.status==='active'?`<button class="btn btn-secondary" id="rr-pause">Pune în pauză</button>`:''}</div></section>`;
+    return `<section class="card"><div class="rr-rule-head"><h2 class="card-title">${esc(r.name)}</h2><button class="btn btn-secondary" id="rr-back">Înapoi</button></div><div class="rr-facts"><div><span>Sumă sugerată</span><strong>${esc(money(r.amount,r.currency))}</strong></div><div><span>Tip</span><strong>${esc(typeLabel[r.type]||r.type)}</strong></div><div><span>Cont</span><strong>${esc(accountName(r.account))}${r.type==='transfer'?' → '+esc(accountName(r.toAccount)):''}</strong></div><div><span>Repetare</span><strong>la ${r.interval>1?r.interval+' ':''}${esc(unitLabel[r.unit]||r.unit)}</strong></div><div><span>Următoarea</span><strong>${esc(fmtDate(r.nextDate))}</strong></div></div>${r.note?`<p style="white-space:pre-wrap">${esc(r.note)}</p>`:''}${r.readinessError?`<p class="card-sub">${esc(r.readinessError)}</p>`:''}<div class="btn-row"><button class="btn btn-secondary" data-rr-edit="${esc(r.id)}">Modifică</button><button class="btn btn-secondary" id="rr-toggle">${r.status==='active'?'Pune în pauză':'Reia'}</button></div></section>`;
   }
   function form(r) {
-    r=r||{id:'rule-'+crypto.randomUUID(),name:'',note:'',mode:'tasks',status:'draft',startDate:data.today,interval:1,unit:'month',type:'cheltuiala',amount:'',currency:context().settings.baseCurrency,category:'',account:'',toAccount:'',confirmFixed:false};
+    r=r||{id:'rule-'+crypto.randomUUID(),name:'',note:'',mode:'review',status:'active',startDate:data.today,interval:1,unit:'month',type:'cheltuiala',amount:'',currency:context().settings?.baseCurrency||'EUR',category:'',account:'',toAccount:''};
     draft=r;
-    const acc=context().accounts.filter(a=>!a.archived),opts=(key)=>'<option value="">Alege contul</option>'+acc.map(a=>`<option value="${esc(a.id)}" ${r[key]===a.id?'selected':''}>${esc(a.name)} (${esc(a.currency)})</option>`).join('');
-    return `<section class="card"><div class="rr-rule-head"><h2 class="card-title">${rule()?'Modifică regula':'Recurență nouă'}</h2><button class="btn btn-secondary" id="rr-cancel">Renunță</button></div><form id="rr-form" class="form-grid rr-editor-grid" data-rule-id="${esc(r.id)}"><div class="field"><label for="rr-name">Nume</label><input class="input" id="rr-name" maxlength="100" required value="${esc(r.name)}"></div><div class="field"><label for="rr-mode">Ce face</label><select class="input" id="rr-mode"><option value="tasks" ${r.mode==='tasks'?'selected':''}>Memento în Google Tasks, fără tranzacții</option><option value="auto" ${r.mode==='auto'?'selected':''}>Înregistrare contabilă automată, sumă fixă</option></select></div><div class="field"><label for="rr-start">Prima scadență (ancora seriei)</label><input class="input" id="rr-start" type="date" required value="${esc(r.startDate)}"></div><div class="field"><label>Repetă la fiecare</label><div class="rr-inline"><input class="input" id="rr-interval" type="number" min="1" max="120" required value="${esc(r.interval)}"><select class="input" id="rr-unit">${Object.entries(unitLabel).map(([k,v])=>`<option value="${k}" ${r.unit===k?'selected':''}>${v}</option>`).join('')}</select></div></div><div class="field"><label for="rr-end">Ultima scadență, opțional</label><input class="input" id="rr-end" type="date" value="${esc(r.endDate||'')}"></div><div class="field"><label for="rr-count">Sau număr maxim de apariții, opțional</label><input class="input" id="rr-count" type="number" min="1" max="10000" value="${esc(r.maxOccurrences||'')}"></div><fieldset class="rr-auto-fields" id="rr-auto-fields"><legend>Numai pentru sume fixe</legend><div class="form-grid"><div class="field"><label for="rr-type">Tip contabil</label><select class="input" id="rr-type"><option value="cheltuiala" ${r.type==='cheltuiala'?'selected':''}>Cheltuială</option><option value="transfer" ${r.type==='transfer'?'selected':''}>Transfer între conturi</option></select></div><div class="field"><label for="rr-amount">Sumă în moneda contului</label><input class="input" id="rr-amount" type="number" min="0.01" step="0.01" value="${esc(r.amount)}"></div><div class="field"><label for="rr-currency">Monedă</label><select class="input" id="rr-currency">${context().currencies.map(c=>`<option value="${esc(c.code)}" ${r.currency===c.code?'selected':''}>${esc(c.code)}</option>`).join('')}</select></div><div class="field"><label for="rr-account">Cont sursă</label><select class="input" id="rr-account">${opts('account')}</select></div><div class="field" id="rr-target-field"><label for="rr-target">Cont destinație</label><select class="input" id="rr-target">${opts('toAccount')}</select></div><div class="field"><label for="rr-category">Categorie</label><select class="input" id="rr-category"><option value="">Alege categoria</option>${context().categories.filter(c=>c.type!=='venit').map(c=>`<option value="${esc(c.id)}" ${r.category===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div></div><label class="rr-confirm"><input type="checkbox" id="rr-fixed" ${r.confirmFixed?'checked':''}> Confirm că suma este fixă și plata se debitează automat. Regula doar o înregistrează, nu face plata.</label></fieldset><div class="field rr-wide"><label for="rr-note">Notă / șablon, păstrat integral</label><textarea class="input" id="rr-note" rows="7" maxlength="4000">${esc(r.note||'')}</textarea></div><div class="field rr-wide" id="rr-task-field"><label for="rr-task-link">Legătura directă a taskului existent, opțional</label><input class="input" type="url" id="rr-task-link" value="${esc(r.taskLink||'')}" placeholder="https://tasks.google.com/task/..."><p class="card-sub">Nu creează alt task și nu îi schimbă data sau starea.</p></div><div class="field" id="rr-status-field"><label for="rr-status">Stare regulă</label><select class="input" id="rr-status">${Object.entries(labels).map(([k,v])=>`<option value="${k}" ${r.status===k?'selected':''}>${v}</option>`).join('')}</select></div><div class="rr-wide card-sub">Salvarea nu mută bani. Motorul serverului are un întrerupător separat. O monedă incompatibilă poate fi păstrată în ciornă, dar nu activată.</div><div class="btn-row rr-wide"><button class="btn btn-primary" type="submit" ${busy?'disabled':''}>Salvează regula</button><button class="btn btn-secondary" type="button" id="rr-cancel-bottom">Renunță</button></div></form></section>`;
+    const acc=accounts(), o=(key)=>'<option value="">Alege contul</option>'+acc.map(a=>`<option value="${esc(a.id)}" ${r[key]===a.id?'selected':''}>${esc(a.name)} (${esc(a.currency)})</option>`).join('');
+    const cats=(context().categories||[]).filter(c=>c.active!==false&&(c.type||c.kind||'cheltuiala')===(r.type==='venit'?'venit':'cheltuiala'));
+    const sel=(id,opts,val)=>`<select class="input" id="rr-${id}">${opts.map(([v,l])=>`<option value="${esc(v)}" ${v===val?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
+    return `<section class="card"><div class="rr-rule-head"><h2 class="card-title">${rule()?'Modifică recurența':'Recurență nouă'}</h2><button class="btn btn-secondary" id="rr-cancel">Renunță</button></div><form id="rr-form" class="form-grid rr-editor-grid" data-rule-id="${esc(r.id)}">`+
+      `<div class="field"><label>Nume</label><input class="input" id="rr-name" maxlength="100" required value="${esc(r.name)}"></div>`+
+      `<div class="field"><label>Tip</label>${sel('type',[['cheltuiala','Cheltuială'],['venit','Venit'],['transfer','Transfer']],r.type)}</div>`+
+      `<div class="field"><label>Sumă sugerată</label><input class="input" id="rr-amount" inputmode="decimal" required value="${esc(r.amount)}"></div>`+
+      `<div class="field"><label>Monedă</label><input class="input" id="rr-currency" maxlength="3" required value="${esc(r.currency)}"></div>`+
+      `<div class="field"><label>Cont</label><select class="input" id="rr-account">${o('account')}</select></div>`+
+      `<div class="field" id="rr-target-field" ${r.type==='transfer'?'':'hidden'}><label>Cont destinație</label><select class="input" id="rr-toaccount">${o('toAccount')}</select></div>`+
+      `<div class="field" id="rr-cat-field" ${r.type==='transfer'?'hidden':''}><label>Categorie</label><select class="input" id="rr-category"><option value="">Alege categoria</option>${cats.map(c=>`<option value="${esc(c.id)}" ${r.category===c.id?'selected':''}>${esc((c.emoji||'')+' '+c.name)}</option>`).join('')}</select></div>`+
+      `<div class="field"><label>Prima scadență</label><input class="input" type="date" id="rr-start" required value="${esc(r.startDate)}"></div>`+
+      `<div class="field"><label>Se repetă la</label><input class="input" type="number" min="1" max="120" id="rr-interval" value="${esc(r.interval)}">${sel('unit',[['week','săptămâni'],['month','luni'],['year','ani']],r.unit)}</div>`+
+      `<div class="field"><label>Ultima scadență (opțional)</label><input class="input" type="date" id="rr-end" value="${esc(r.endDate||'')}"></div>`+
+      `<div class="field"><label>Notiță (se păstrează exact)</label><textarea class="input" id="rr-note" rows="3">${esc(r.note)}</textarea></div>`+
+      `<div class="btn-row"><button class="btn btn-primary" type="submit" ${busy?'disabled':''}>Salvează</button></div></form></section>`;
   }
   function render() {
     syncOwner();
-    if(!connected())return header()+'<section class="card"><p>Recurențele automate sunt disponibile numai după conectarea la datele tale. În modul demo nu pornește nimic.</p><button class="btn btn-primary" data-view="settings">Deschide setările</button></section>';
+    if(!connected()) return header()+'<section class="card"><p>Recurențele sunt disponibile după conectarea la datele tale. În modul demo nu pornește nimic.</p><button class="btn btn-primary" data-view="settings">Deschide setările</button></section>';
     const errorHtml=error?`<p class="rr-error card" role="alert">${esc(error)}</p>`:'';
-    if(!data)return header()+errorHtml+`<section class="card"><p>${busy?'Se citesc regulile și starea serverului…':'Reîncarcă regulile pentru a vedea starea reală.'}</p></section>`;
-    if(editing)return header()+errorHtml+form(draft||rule());
-    if(selected&&rule())return header()+errorHtml+detail(rule());
-    const previewHtml=preview?`<section class="card"><h2 class="card-title">Previzualizare, fără nicio scriere</h2>${preview.map(p=>`<p><strong>${esc(data.rules.find(r=>r.id===p.id)?.name||p.id)}</strong>: ${p.error?esc(p.error):p.due.length?`${p.due.length} apariții până azi. ${p.due.map(o=>esc(date(o.date))+': '+esc(o.dedupe)).join('; ')}`:'Nicio înregistrare de creat până azi.'}</p>`).join('')}</section>`:'';
-    return header()+errorHtml+engine()+previewHtml+cards();
+    if(!data) return header()+errorHtml+`<section class="card"><p>${busy?'Se citesc scadențele…':'Reîncarcă pentru a vedea scadențele.'}</p></section>`;
+    if(editing) return header()+errorHtml+form(draft||rule());
+    if(selected&&rule()) return header()+errorHtml+detail(rule());
+    const items=pendingItems();
+    const review=items.length?`<h2 class="card-title">De verificat (${items.length})</h2>${items.map(reviewCard).join('')}`:'<section class="card"><h2 class="card-title">De verificat</h2><p>Nicio scadență de verificat acum.</p></section>';
+    return header()+errorHtml+review+pushSection()+rulesList();
+  }
+
+  async function post(key) {
+    const i=(data.review||[]).find(x=>x.key===key), d=drafts[key]; if(!i||!d) return;
+    const amount=Number(String(d.amount).replace(',','.')), acc=accObj(d.account);
+    const err=!(amount>0)?'Suma trebuie să fie mai mare decât 0.':!acc?'Alege contul.':(i.type==='transfer'&&(!d.toAccount||d.toAccount===d.account))?'Alege un cont destinație diferit.':!/^\d{4}-\d\d-\d\d$/.test(d.date)?'Alege data.':'';
+    if(err){cardErrors[key]=err;refresh();return;}
+    delete cardErrors[key]; busy=true; refresh();
+    try {
+      const session=sessions[key]||(sessions[key]=createTransactionSaveSession(store,{requestId:i.id}));
+      const payload={id:i.id,date:d.date,type:i.type,amount,currency:acc.currency,account:d.account,category:i.category,description:i.name,merchant:i.merchant,method:i.method||'Transfer bancar',source:i.source,bill:i.ruleId};
+      if(i.type==='transfer'){payload.toAccount=d.toAccount;payload.toAmount=amount;}
+      const res=await session.save(payload);
+      if(res.status==='rejected'||res.status==='unconfirmed'){cardErrors[key]=res.message;}
+      else{done.add(key);delete sessions[key];notify(res.status==='confirmed'?'Înregistrat.':'Salvat. Se trimite în fundal.',3200);}
+    } catch(e){cardErrors[key]=e.message;}
+    finally{busy=false;pendingCount=pendingItems().length;refresh();}
+  }
+  async function subscribe(on) {
+    const reg=await navigator.serviceWorker.ready;
+    if(!on){const s=await reg.pushManager.getSubscription();if(s){await request(removePushSubscription,s.endpoint);await s.unsubscribe();}setData((await request(readRecurrences)).recurrenceState);return;}
+    const perm=await Notification.requestPermission(); if(perm!=='granted')throw new Error('Permisiunea pentru notificări nu a fost acordată.');
+    const s=(await reg.pushManager.getSubscription())||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlKey(data.push.vapidPublicKey)});
+    await request(savePushSubscription,s.endpoint);
+    setData((await request(readRecurrences)).recurrenceState); notify('Notificările sunt active pe acest telefon.',4000);
   }
   function bind(root) {
-    const on=(selector,fn)=>{const e=root.querySelector(selector);if(e)e.onclick=fn;};
+    const on=(sel,fn)=>{const e=root.querySelector(sel);if(e)e.onclick=fn;};
     on('#rr-refresh',load);on('#rr-new',()=>{error='';selected='';draft=null;editing=true;refresh();});
     on('#rr-back',()=>{error='';selected='';refresh();});
-    const cancel=()=>{error='';editing=false;draft=null;refresh();};on('#rr-cancel',cancel);on('#rr-cancel-bottom',cancel);
+    on('#rr-push-on',()=>perform(()=>subscribe(true)));on('#rr-push-off',()=>perform(()=>subscribe(false)));
+    const cancel=()=>{error='';editing=false;draft=null;refresh();};on('#rr-cancel',cancel);
     root.querySelectorAll('[data-rr-open]').forEach(b=>b.onclick=()=>{error='';selected=b.dataset.rrOpen;editing=false;refresh();});
     root.querySelectorAll('[data-rr-edit]').forEach(b=>b.onclick=()=>{error='';selected=b.dataset.rrEdit;draft={...rule()};editing=true;refresh();});
-    on('#rr-preview',()=>perform(async()=>{const result=await request(previewRecurrences);data=result.recurrenceState;preview=result.preview;}));
-    on('#rr-engine',()=>{const enabled=!data.engine.enabled;if(!confirm(enabled?'Pornești numai înregistrările contabile aprobate? Nu se fac plăți și nu se oprește nimic în TimelyBills.':'Oprești motorul aplicației? Regulile și istoricul se păstrează.'))return;perform(async()=>{data=(await request(setRecurrenceEngine,enabled)).recurrenceState;});});
-    on('#rr-pause',()=>perform(async()=>{const r=rule();data=(await request(saveRecurrence,{...r,status:'paused'},r.revision)).recurrenceState;notify('Regula este în pauză. Istoricul rămâne intact.');}));
+    root.querySelectorAll('[data-rr-post]').forEach(b=>b.onclick=()=>post(b.dataset.rrPost));
+    root.querySelectorAll('[data-rr-skip]').forEach(b=>b.onclick=()=>{const i=(data.review||[]).find(x=>x.key===b.dataset.rrSkip);if(!i||!confirm(`Omiți scadența ${fmtDate(i.date)} pentru ${i.name}? Nu se înregistrează nimic.`))return;perform(async()=>{setData((await request(skipRecurrenceOccurrence,i.ruleId,i.date)).recurrenceState);});});
+    root.querySelectorAll('[data-f]').forEach(el=>{const h=()=>{const d=drafts[el.dataset.k];if(!d)return;d[el.dataset.f]=el.value;if(el.dataset.f==='account'){const c=root.querySelector(`[data-cur="${CSS.escape(el.dataset.k)}"]`);if(c)c.textContent=accObj(el.value)?.currency||'';}};el.oninput=h;el.onchange=h;});
+    on('#rr-toggle',()=>perform(async()=>{const r=rule();setData((await request(saveRecurrence,{...r,status:r.status==='active'?'paused':'active'},r.revision)).recurrenceState);}));
     const f=root.querySelector('#rr-form');if(!f)return;
     const q=id=>root.querySelector('#rr-'+id);
-    function modes(){const automatic=q('mode').value==='auto';q('auto-fields').hidden=!automatic;q('task-field').hidden=automatic;q('status-field').hidden=!automatic;root.querySelectorAll('#rr-auto-fields input,#rr-auto-fields select').forEach(e=>{e.disabled=!automatic;});q('target-field').hidden=q('type').value!=='transfer';}
-    q('mode').onchange=modes;q('type').onchange=modes;modes();
-    const collect=()=>{const old=draft||rule()||{},automatic=q('mode').value==='auto';const next={...old,id:f.dataset.ruleId,name:q('name').value,note:q('note').value,mode:q('mode').value,startDate:q('start').value,endDate:q('end').value,interval:Number(q('interval').value),unit:q('unit').value,maxOccurrences:Number(q('count').value)||0,status:automatic?q('status').value:'draft',type:q('type').value,amount:automatic?Number(q('amount').value):0,currency:q('currency').value,account:q('account').value,toAccount:q('type').value==='transfer'?q('target').value:'',category:q('category').value,confirmFixed:q('fixed').checked,taskLink:q('task-link').value,method:old.method||'Transfer bancar'};return next;};
-    f.oninput=()=>{draft=collect();};f.onchange=()=>{draft=collect();};
-    f.onsubmit=e=>{e.preventDefault();const next=collect(),old=draft||rule()||{};draft=next;perform(async()=>{data=(await request(saveRecurrence,next,old.revision)).recurrenceState;selected=next.id;editing=false;draft=null;preview=null;notify('Regula a fost salvată. Starea motorului este separată.');});};
+    const collect=()=>{const old=rule()||{};return {...old,id:f.dataset.ruleId,name:q('name').value,note:q('note').value,mode:'review',status:old.status||'active',type:q('type').value,amount:q('amount').value,currency:q('currency').value.toUpperCase(),account:q('account').value,toAccount:q('toaccount')?q('toaccount').value:'',category:q('category')?q('category').value:'',startDate:q('start').value,endDate:q('end').value,interval:Number(q('interval').value)||1,unit:q('unit').value};};
+    q('type').onchange=()=>{draft=collect();refresh();};
+    f.onsubmit=e=>{e.preventDefault();const old=rule()||{};
+      const next={...old,id:f.dataset.ruleId,name:q('name').value,note:q('note').value,mode:'review',status:old.status||'active',type:q('type').value,amount:Number(String(q('amount').value).replace(',','.')),currency:q('currency').value.toUpperCase(),account:q('account').value,toAccount:q('toaccount')?q('toaccount').value:'',category:q('category')?q('category').value:'',startDate:q('start').value,endDate:q('end').value,interval:Number(q('interval').value)||1,unit:q('unit').value,confirmFixed:false};
+      draft=next;perform(async()=>{setData((await request(saveRecurrence,next,old.revision)).recurrenceState);selected=next.id;editing=false;draft=null;notify('Recurența a fost salvată.');});};
   }
   return {render,bind,load};
 }

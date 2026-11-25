@@ -204,3 +204,7 @@ export async function readRecurrences(webAppUrl, pin) { return postToScript(webA
 export async function previewRecurrences(webAppUrl, pin) { return postToScript(webAppUrl, {action:'previewRecurrences',pin}); }
 export async function saveRecurrence(webAppUrl, pin, rule, expectedRevision) { return postToScript(webAppUrl, {action:'saveRecurrence',pin,rule,expectedRevision}); }
 export async function setRecurrenceEngine(webAppUrl, pin, enabled) { return postToScript(webAppUrl, {action:'setRecurrenceEngine',pin,enabled}); }
+
+export async function skipRecurrenceOccurrence(webAppUrl, pin, ruleId, date) { return postToScript(webAppUrl, {action:'skipRecurrenceOccurrence',pin,ruleId,date}); }
+export async function savePushSubscription(webAppUrl, pin, endpoint) { return postToScript(webAppUrl, {action:'savePushSubscription',pin,endpoint}); }
+export async function removePushSubscription(webAppUrl, pin, endpoint) { return postToScript(webAppUrl, {action:'removePushSubscription',pin,endpoint}); }

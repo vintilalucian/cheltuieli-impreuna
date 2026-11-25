@@ -1,6 +1,6 @@
 // One form session owns one request ID. Retries only flush that request.
-export function createTransactionSaveSession(store, { expenseId = null, expectedModified = null } = {}) {
-  const requestId = expenseId || `entry_${crypto.randomUUID()}`;
+export function createTransactionSaveSession(store, { expenseId = null, expectedModified = null, requestId: stableRequestId = null } = {}) {
+  const requestId = expenseId || stableRequestId || `entry_${crypto.randomUUID()}`;
   let submitted = false;
   let inFlight = null;
   const opId = (op) => op?.transfer?.id || op?.expense?.id || op?.id;
@@ -22,6 +22,10 @@ export function createTransactionSaveSession(store, { expenseId = null, expected
         if (submitted) {
           if (!rejected()) await store.flushQueue();
         } else {
+          // A stable request ID (recurring occurrence) must never be written twice: a record or queued op already carries it.
+          const present = store.state.expenses.find((item) => item.id === requestId);
+          const queued = (store.state.pendingQueue || []).some((op) => opId(op?.op || op) === requestId);
+          if (!expenseId && stableRequestId && (present || queued || rejected())) { submitted = true; if (!rejected()) await store.flushQueue(); return result(); }
           const before = store.state.expenses.find((item) => item.id === requestId);
           try {
             if (expenseId) await store.updateExpense(expenseId, payload, expectedModified, { background: true });
