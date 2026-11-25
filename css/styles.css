@@ -1272,3 +1272,31 @@ button, input, select, textarea {
 .rr-banner { display:block; width:100%; margin:0 0 12px; padding:12px 14px; border:0; border-left:5px solid #eab308; border-radius:12px; background:#fff3a8; color:#4a3b00; font:inherit; font-weight:600; text-align:left; cursor:pointer; }
 
 .rr-early { border-left-color: #2563eb; }
+
+/* De plătit manual (read-only agenda) */
+.mb-banner { display:block; width:100%; margin:0 0 12px; padding:12px 14px; border:0; border-left:5px solid #2563eb; border-radius:12px; background:var(--primary-soft); color:inherit; font:inherit; font-weight:600; text-align:left; cursor:pointer; }
+.mb-card { margin-bottom:14px; }
+.mb-sum { margin:8px 0; font-size:.9rem; }
+.mb-list { list-style:none; margin:0; padding:0; }
+.mb-row { padding:10px 0; border-top:1px solid rgba(128,128,128,.25); }
+.mb-top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.mb-name { font-weight:700; }
+.mb-amt { font-weight:700; white-space:nowrap; }
+.mb-amt i { font-weight:400; font-size:.7rem; opacity:.65; }
+.mb-unk { font-weight:600; font-size:.85rem; color:#b45309; }
+.mb-mid { display:flex; flex-wrap:wrap; gap:4px 10px; font-size:.85rem; margin-top:2px; }
+.mb-due.soon { color:#b45309; font-weight:600; }
+.mb-due.late { color:#dc2626; font-weight:700; }
+.mb-meta { opacity:.7; }
+.mb-note { margin-top:4px; font-size:.8rem; opacity:.85; white-space:pre-line; }
+.mb-link { display:inline-block; margin:6px 8px 0 0; padding:6px 10px; border-radius:8px; background:var(--primary-soft); color:var(--primary); font-size:.8rem; font-weight:600; text-decoration:none; }
+.mb-more { margin-top:10px; }
+.mb-more summary { cursor:pointer; font-weight:600; font-size:.9rem; }
+.mb-foot { margin-top:10px; font-size:.75rem; opacity:.7; }
+.mb-dayh { margin:14px 0 0; font-size:1rem; }
+.mb-count { font-size:.75rem; opacity:.65; font-weight:500; }
+.mb-kind { font-size:.7rem; font-weight:800; letter-spacing:.03em; padding:2px 8px; border-radius:999px; }
+.mb-manual { background:#fde68a; color:#78350f; }
+.mb-auto { background:#bbf7d0; color:#14532d; }
+.mb-unknown { background:#e5e7eb; color:#374151; }
+.mb-income { background:#dbeafe; color:#1e3a8a; }
