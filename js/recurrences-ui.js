@@ -6,7 +6,7 @@ import { store } from './store.js';
 // and then it goes through the same save pipeline as a manual entry, with a stable ID and source for the occurrence.
 const esc = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const unitLabel = {week:'săptămână',month:'lună',year:'an'};
-const typeLabel = {cheltuiala:'Cheltuială',venit:'Venit',transfer:'Transfer'};
+const typeLabel = {cheltuiala:'Cheltuială',venit:'Venit',transfer:'Transfer',investitie:'Investiție'};
 const fmtDate = s => s ? new Intl.DateTimeFormat('ro-RO',{dateStyle:'medium',timeZone:'Europe/Brussels'}).format(new Date(s+'T12:00:00Z')) : 'Fără altă scadență';
 const money = (n,c) => { try { return new Intl.NumberFormat('ro-RO',{style:'currency',currency:c||'EUR'}).format(Number(n)||0); } catch { return `${n} ${c||''}`; } };
 const daysLate = (today,date) => Math.round((Date.parse(today+'T12:00:00Z')-Date.parse(date+'T12:00:00Z'))/86400000);
@@ -34,16 +34,16 @@ export function createRecurrenceView({ context, refresh, notify }) {
   function pendingItems() { return (data?.review||[]).filter(i=>!done.has(i.key) && !known(i.id)); }
 
   function reviewCard(i) {
-    const d=drafts[i.key]||(drafts[i.key]={amount:i.amount,account:accObj(i.account)?accObj(i.account).id:'',toAccount:accObj(i.toAccount)?i.toAccount:'',date:i.date});
+    const d=drafts[i.key]||(drafts[i.key]={amount:i.amount,account:accObj(i.account)?accObj(i.account).id:'',toAccount:accObj(i.toAccount)?i.toAccount:'',toAmount:i.toAmount===''||i.toAmount==null?'':i.toAmount,date:i.date});
     const late=daysLate(data.today,i.date), cls=i.state==='today'?'rr-due-today':'rr-due-overdue';
     const label=i.state==='today'?'Azi':`Întârziat ${late} ${late===1?'zi':'zile'}`;
     const opts=(sel,skip)=>'<option value="">Alege contul</option>'+accounts().filter(a=>a.id!==skip).map(a=>`<option value="${esc(a.id)}" ${sel===a.id?'selected':''}>${esc(a.name)} (${esc(a.currency)})</option>`).join('');
-    const cur=accObj(d.account)?.currency||i.currency, k=esc(i.key);
+    const cur=accObj(d.account)?.currency||i.currency, k=esc(i.key), isT=i.type==='transfer'||i.type==='investitie', dcur=accObj(d.toAccount)?.currency||'';
     return `<article class="card rr-review-card ${cls}" data-card="${k}"><div class="rr-rule-head"><div><strong class="rr-title">${esc(i.name)}</strong><div class="card-sub">${esc(typeLabel[i.type]||i.type)} · scadență ${esc(fmtDate(i.date))}</div></div><span class="badge">${esc(label)}</span></div>`+
       (i.note?`<p class="rr-note" style="white-space:pre-wrap">${esc(i.note)}</p>`:'')+
       `<div class="form-grid rr-editor-grid"><div class="field"><label>Sumă (<span data-cur="${k}">${esc(cur)}</span>)</label><input class="input" inputmode="decimal" data-f="amount" data-k="${k}" value="${esc(d.amount)}"></div>`+
-      `<div class="field"><label>${i.type==='transfer'?'Din contul':'Cont'}</label><select class="input" data-f="account" data-k="${k}">${opts(d.account)}</select></div>`+
-      (i.type==='transfer'?`<div class="field"><label>În contul</label><select class="input" data-f="toAccount" data-k="${k}">${opts(d.toAccount,d.account)}</select></div>`:'')+
+      `<div class="field"><label>${isT?'Din contul':'Cont'}</label><select class="input" data-f="account" data-k="${k}">${opts(d.account)}</select></div>`+
+      (isT?`<div class="field"><label>În contul</label><select class="input" data-f="toAccount" data-k="${k}">${opts(d.toAccount,d.account)}</select></div><div class="field"><label>Suma primită${dcur?' ('+esc(dcur)+')':''}${dcur&&dcur!==cur?'':' (opțional)'}</label><input class="input" inputmode="decimal" data-f="toAmount" data-k="${k}" value="${esc(d.toAmount)}" placeholder="${dcur&&dcur!==cur?'obligatoriu, din extras':''}"></div>`:'')+
       `<div class="field"><label>Data înregistrării</label><input class="input" type="date" data-f="date" data-k="${k}" value="${esc(d.date)}"></div></div>`+
       (i.currency!==cur?`<p class="card-sub">Suma sugerată era în ${esc(i.currency)}. Contul ales este în ${esc(cur)}: verifică suma.</p>`:'')+
       (cardErrors[i.key]?`<p class="rr-error" role="alert">${esc(cardErrors[i.key])}</p>`:'')+
@@ -55,8 +55,8 @@ export function createRecurrenceView({ context, refresh, notify }) {
     if(!supported) msg='Acest browser nu permite notificări de la aplicație. Pe iPhone, instalează mai întâi aplicația pe ecranul principal.';
     else if(!p.relayConfigured||!p.vapidPublicKey) msg='Serviciul de notificări nu este încă pornit pe server.';
     else if(Notification.permission==='denied') msg='Notificările sunt blocate pentru aplicație în setările telefonului.';
-    else if(p.devices>0 && Notification.permission==='granted') { msg=`Notificările de seară sunt active (${p.devices} ${p.devices===1?'dispozitiv':'dispozitive'}). Primești un mesaj în jurul orei 19 doar când ai scadențe de verificat.`; btn='<button class="btn btn-secondary" id="rr-push-off">Oprește pe acest telefon</button>'; }
-    else { msg='Primești seara, în jurul orei 19, o notificare doar când ai scadențe de verificat.'; btn='<button class="btn btn-primary" id="rr-push-on">Activează notificările</button>'; }
+    else if(p.devices>0 && Notification.permission==='granted') { msg=`Notificările de seară sunt active (${p.devices} ${p.devices===1?'dispozitiv':'dispozitive'}). Primești un mesaj seara, după 19:30, doar când ai scadențe de verificat.`; btn='<button class="btn btn-secondary" id="rr-push-off">Oprește pe acest telefon</button>'; }
+    else { msg='Primești seara, după 19:30, o notificare doar când ai scadențe de verificat.'; btn='<button class="btn btn-primary" id="rr-push-on">Activează notificările</button>'; }
     return `<section class="card"><h2 class="card-title">Notificări</h2><p>${esc(msg)}</p>${btn}</section>`;
   }
   function header() { return `<div class="view-head"><div><h1>Recurențe</h1><p class="card-sub">La scadență apare un card de verificat. Nimic nu intră în evidență până nu apeși Înregistrează.</p></div><div class="btn-row"><button class="btn btn-secondary" id="rr-refresh" ${busy?'disabled':''}>Reîncarcă</button><button class="btn btn-primary" id="rr-new" ${busy||!data?'disabled':''}>Adaugă recurență</button></div></div>`; }
@@ -76,12 +76,12 @@ export function createRecurrenceView({ context, refresh, notify }) {
     const sel=(id,opts,val)=>`<select class="input" id="rr-${id}">${opts.map(([v,l])=>`<option value="${esc(v)}" ${v===val?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
     return `<section class="card"><div class="rr-rule-head"><h2 class="card-title">${rule()?'Modifică recurența':'Recurență nouă'}</h2><button class="btn btn-secondary" id="rr-cancel">Renunță</button></div><form id="rr-form" class="form-grid rr-editor-grid" data-rule-id="${esc(r.id)}">`+
       `<div class="field"><label>Nume</label><input class="input" id="rr-name" maxlength="100" required value="${esc(r.name)}"></div>`+
-      `<div class="field"><label>Tip</label>${sel('type',[['cheltuiala','Cheltuială'],['venit','Venit'],['transfer','Transfer']],r.type)}</div>`+
+      `<div class="field"><label>Tip</label>${sel('type',[['cheltuiala','Cheltuială'],['venit','Venit'],['transfer','Transfer'],['investitie','Investiție']],r.type)}</div>`+
       `<div class="field"><label>Sumă sugerată</label><input class="input" id="rr-amount" inputmode="decimal" required value="${esc(r.amount)}"></div>`+
       `<div class="field"><label>Monedă</label><input class="input" id="rr-currency" maxlength="3" required value="${esc(r.currency)}"></div>`+
       `<div class="field"><label>Cont</label><select class="input" id="rr-account">${o('account')}</select></div>`+
-      `<div class="field" id="rr-target-field" ${r.type==='transfer'?'':'hidden'}><label>Cont destinație</label><select class="input" id="rr-toaccount">${o('toAccount')}</select></div>`+
-      `<div class="field" id="rr-cat-field" ${r.type==='transfer'?'hidden':''}><label>Categorie</label><select class="input" id="rr-category"><option value="">Alege categoria</option>${cats.map(c=>`<option value="${esc(c.id)}" ${r.category===c.id?'selected':''}>${esc((c.emoji||'')+' '+c.name)}</option>`).join('')}</select></div>`+
+      `<div class="field" id="rr-target-field" ${r.type==='transfer'||r.type==='investitie'?'':'hidden'}><label>Cont destinație</label><select class="input" id="rr-toaccount">${o('toAccount')}</select></div>`+
+      `<div class="field" id="rr-cat-field" ${r.type==='transfer'||r.type==='investitie'?'hidden':''}><label>Categorie</label><select class="input" id="rr-category"><option value="">Alege categoria</option>${cats.map(c=>`<option value="${esc(c.id)}" ${r.category===c.id?'selected':''}>${esc((c.emoji||'')+' '+c.name)}</option>`).join('')}</select></div>`+
       `<div class="field"><label>Prima scadență</label><input class="input" type="date" id="rr-start" required value="${esc(r.startDate)}"></div>`+
       `<div class="field"><label>Se repetă la</label><input class="input" type="number" min="1" max="120" id="rr-interval" value="${esc(r.interval)}">${sel('unit',[['week','săptămâni'],['month','luni'],['year','ani']],r.unit)}</div>`+
       `<div class="field"><label>Ultima scadență (opțional)</label><input class="input" type="date" id="rr-end" value="${esc(r.endDate||'')}"></div>`+
@@ -103,13 +103,13 @@ export function createRecurrenceView({ context, refresh, notify }) {
   async function post(key) {
     const i=(data.review||[]).find(x=>x.key===key), d=drafts[key]; if(!i||!d) return;
     const amount=Number(String(d.amount).replace(',','.')), acc=accObj(d.account);
-    const err=!(amount>0)?'Suma trebuie să fie mai mare decât 0.':!acc?'Alege contul.':(i.type==='transfer'&&(!d.toAccount||d.toAccount===d.account))?'Alege un cont destinație diferit.':!/^\d{4}-\d\d-\d\d$/.test(d.date)?'Alege data.':'';
+    const err=!(amount>0)?'Suma trebuie să fie mai mare decât 0.':!acc?'Alege contul.':((i.type==='transfer'||i.type==='investitie')&&(!d.toAccount||d.toAccount===d.account))?'Alege un cont destinație diferit.':!/^\d{4}-\d\d-\d\d$/.test(d.date)?'Alege data.':'';
     if(err){cardErrors[key]=err;refresh();return;}
     delete cardErrors[key]; busy=true; refresh();
     try {
       const session=sessions[key]||(sessions[key]=createTransactionSaveSession(store,{requestId:i.id}));
       const payload={id:i.id,date:d.date,type:i.type,amount,currency:acc.currency,account:d.account,category:i.category,description:i.name,merchant:i.merchant,method:i.method||'Transfer bancar',source:i.source,bill:i.ruleId};
-      if(i.type==='transfer'){payload.toAccount=d.toAccount;payload.toAmount=amount;}
+      if(i.type==='transfer'||i.type==='investitie'){const dst=accObj(d.toAccount),raw=String(d.toAmount==null?'':d.toAmount).replace(',','.').trim();let ta=raw===''?null:Number(raw);if(ta!==null&&!(ta>0)){cardErrors[key]='Suma primită trebuie să fie mai mare decât 0.';busy=false;refresh();return;}if(ta===null){if(dst&&dst.currency===acc.currency)ta=amount;else{cardErrors[key]='Completează suma primită'+(dst?' în '+dst.currency:'')+', așa cum apare în extras. Nu estimăm cursul.';busy=false;refresh();return;}}payload.toAccount=d.toAccount;payload.toAmount=ta;}
       const res=await session.save(payload);
       if(res.status==='rejected'||res.status==='unconfirmed'){cardErrors[key]=res.message;}
       else{done.add(key);delete sessions[key];notify(res.status==='confirmed'?'Înregistrat.':'Salvat. Se trimite în fundal.',3200);}
