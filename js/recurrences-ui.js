@@ -1,6 +1,7 @@
 import { readRecurrences, saveRecurrence, skipRecurrenceOccurrence, savePushSubscription, removePushSubscription } from './sheets-api.js';
 import { createTransactionSaveSession } from './transaction-save.js';
 import { store } from './store.js';
+import { ruleMethodLabel } from './manual-bills.js';
 
 // Review-before-post. A due occurrence is only a card. Nothing reaches the ledger until the user taps "Înregistrează",
 // and then it goes through the same save pipeline as a manual entry, with a stable ID and source for the occurrence.
@@ -94,7 +95,7 @@ export function createRecurrenceView({ context, refresh, notify }) {
     const cmp=(a,b)=>(a.date||'9999').localeCompare(b.date||'9999')||a.r.name.localeCompare(b.r.name,'ro');
     const active=rows.filter(x=>x.r.status==='active'&&x.date).sort(cmp);
     const other=rows.filter(x=>x.r.status!=='active'||!x.date).sort(cmp);
-    const card=({r})=>`<article class="card rr-rule"><div class="rr-rule-head"><button class="rr-title" data-rr-open="${esc(r.id)}">${esc(r.name)}</button><span class="badge">${r.status==='active'?'Activă':r.status==='paused'?'În pauză':esc(r.status)}</span></div><p><strong>${esc(money(r.amount,r.currency))}</strong> · ${esc(typeLabel[r.type]||r.type)}</p><p class="card-sub">${esc(accountName(r.account))}${r.toAccount?' → '+esc(accountName(r.toAccount)):''} · ${esc(every(r))}</p></article>`;
+    const card=({r})=>`<article class="card rr-rule"><div class="rr-rule-head"><button class="rr-title" data-rr-open="${esc(r.id)}">${esc(r.name)}</button>${ruleMethodLabel(r.id,r.type)}<span class="badge">${r.status==='active'?'Activă':r.status==='paused'?'În pauză':esc(r.status)}</span></div><p><strong>${esc(money(r.amount,r.currency))}</strong> · ${esc(typeLabel[r.type]||r.type)}</p><p class="card-sub">${esc(accountName(r.account))}${r.toAccount?' → '+esc(accountName(r.toAccount)):''} · ${esc(every(r))}</p></article>`;
     const groups=new Map();active.forEach(x=>{if(!groups.has(x.date))groups.set(x.date,[]);groups.get(x.date).push(x);});
     return `<h2 class="card-title">Recurențe programate</h2><p class="card-sub">În ordine crescătoare, grupate după următoarea scadență neînregistrată. Facturile manuale rămân în Google Tasks. Înregistrarea în evidență nu confirmă plata sau debitarea bancară.</p>`+
       [...groups].map(([date,list])=>`<section aria-label="Scadențe ${esc(fmtDate(date))}"><h3 class="card-title" style="margin:20px 0 12px">${esc(fmtDate(date))} <span class="badge">${list.length}</span></h3><div class="rr-list">${list.map(card).join('')}</div></section>`).join('')+
