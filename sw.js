@@ -1,9 +1,9 @@
-const BUILD_ID = "2026-11-25.39"; // bump on every release (release script/test replaces this)
+const BUILD_ID = "2026-11-25.43"; // bump on every release (release script/test replaces this)
 const CACHE_NAME = "buget-familie-" + BUILD_ID;
 const ASSETS = [
   "./", "./index.html", "./manifest.json", "./icons/icon.svg", "./css/styles.css",
   "./js/defaults.js", "./js/ledger.js", "./js/importer.js", "./js/store.js", "./js/sheets-api.js",
-  "./js/transaction-save.js", "./js/inline-category.js", "./js/recurrences-ui.js", "./js/review-banner.js", "./js/insights.js", "./js/charts.js", "./js/excel.js", "./js/app.js"
+  "./js/transaction-save.js", "./js/inline-category.js", "./js/recurrences-ui.js", "./js/review-banner.js", "./js/manual-bills.js", "./js/insights.js", "./js/charts.js", "./js/excel.js", "./js/app.js"
 ];
 
 // Install: fill the NEW cache straight from the network (cache:"reload" bypasses the browser HTTP cache),
