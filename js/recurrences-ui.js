@@ -90,7 +90,15 @@ export function createRecurrenceView({ context, refresh, notify }) {
   function rulesList() {
     const rules=(data.rules||[]).filter(r=>r.mode==='review');
     if(!rules.length) return '<section class="card"><h2 class="card-title">Nicio recurență adăugată</h2><p>Adaugă o recurență ca să primești carduri de verificat la scadență.</p></section>';
-    return `<h2 class="card-title">Recurențe programate</h2><div class="rr-list">${rules.map(r=>`<article class="card rr-rule"><div class="rr-rule-head"><button class="rr-title" data-rr-open="${esc(r.id)}">${esc(r.name)}</button><span class="badge">${r.status==='active'?'Activă':r.status==='paused'?'În pauză':esc(r.status)}</span></div><p>${esc(money(r.amount,r.currency))} · ${esc(every(r))} · următoarea: ${esc(fmtDate(nextOcc(r)))}</p></article>`).join('')}</div>`;
+    const rows=rules.map(r=>({r,date:r.status==='active'?(pendingItems().filter(i=>i.ruleId===r.id).map(i=>i.date).sort()[0]||nextOcc(r)):nextOcc(r)}));
+    const cmp=(a,b)=>(a.date||'9999').localeCompare(b.date||'9999')||a.r.name.localeCompare(b.r.name,'ro');
+    const active=rows.filter(x=>x.r.status==='active'&&x.date).sort(cmp);
+    const other=rows.filter(x=>x.r.status!=='active'||!x.date).sort(cmp);
+    const card=({r})=>`<article class="card rr-rule"><div class="rr-rule-head"><button class="rr-title" data-rr-open="${esc(r.id)}">${esc(r.name)}</button><span class="badge">${r.status==='active'?'Activă':r.status==='paused'?'În pauză':esc(r.status)}</span></div><p><strong>${esc(money(r.amount,r.currency))}</strong> · ${esc(typeLabel[r.type]||r.type)}</p><p class="card-sub">${esc(accountName(r.account))}${r.toAccount?' → '+esc(accountName(r.toAccount)):''} · ${esc(every(r))}</p></article>`;
+    const groups=new Map();active.forEach(x=>{if(!groups.has(x.date))groups.set(x.date,[]);groups.get(x.date).push(x);});
+    return `<h2 class="card-title">Recurențe programate</h2><p class="card-sub">În ordine crescătoare, grupate după următoarea scadență neînregistrată. Facturile manuale rămân în Google Tasks. Înregistrarea în evidență nu confirmă plata sau debitarea bancară.</p>`+
+      [...groups].map(([date,list])=>`<section aria-label="Scadențe ${esc(fmtDate(date))}"><h3 class="card-title" style="margin:20px 0 12px">${esc(fmtDate(date))} <span class="badge">${list.length}</span></h3><div class="rr-list">${list.map(card).join('')}</div></section>`).join('')+
+      (other.length?`<section><h3 class="card-title" style="margin:20px 0 12px">În pauză / fără scadențe viitoare</h3><div class="rr-list">${other.map(card).join('')}</div></section>`:'');
   }
   function detail(r) {
     return `<section class="card"><div class="rr-rule-head"><h2 class="card-title">${esc(r.name)}</h2><button class="btn btn-secondary" id="rr-back">Înapoi</button></div><div class="rr-facts"><div><span>Sumă sugerată</span><strong>${esc(money(r.amount,r.currency))}</strong></div><div><span>Tip</span><strong>${esc(typeLabel[r.type]||r.type)}</strong></div><div><span>Cont</span><strong>${esc(accountName(r.account))}${r.type==='transfer'?' → '+esc(accountName(r.toAccount)):''}</strong></div><div><span>Repetare</span><strong>${esc(every(r))}</strong></div><div><span>Următoarea</span><strong>${esc(fmtDate(nextOcc(r)))}</strong></div></div>${r.note?`<p style="white-space:pre-wrap">${esc(r.note)}</p>`:''}${r.readinessError?`<p class="card-sub">${esc(r.readinessError)}</p>`:''}<div class="btn-row">${r.status==='active'?`<button class="btn btn-primary" data-rr-early="${esc(r.id)}" ${busy?'disabled':''}>Introdu acum</button>`:''}<button class="btn btn-secondary" data-rr-edit="${esc(r.id)}">Modifică</button><button class="btn btn-secondary" id="rr-toggle">${r.status==='active'?'Pune în pauză':'Reia'}</button></div></section>`;
@@ -123,7 +131,7 @@ export function createRecurrenceView({ context, refresh, notify }) {
     if(early) return header()+errorHtml+earlyView();
     if(editing) return header()+errorHtml+form(draft||rule());
     if(selected&&rule()) return header()+errorHtml+detail(rule());
-    const items=pendingItems();
+    const items=pendingItems().slice().sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name,'ro'));
     const review=items.length?`<h2 class="card-title">De verificat (${items.length})</h2>${items.map(reviewCard).join('')}`:'<section class="card"><h2 class="card-title">De verificat</h2><p>Nicio scadență de verificat acum.</p></section>';
     return header()+errorHtml+review+pushSection()+rulesList();
   }
