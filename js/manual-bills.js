@@ -54,10 +54,11 @@ function row(b, t) {
   const ver = /^\d{4}-\d{2}-\d{2}$/.test(String(mm.m.verifiedAt || '')) ? 'verificat ' + new Intl.DateTimeFormat('ro-RO', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(mm.m.verifiedAt + 'T12:00:00Z')) : '';
   const metaTxt = [FREQ[b.frequency] || b.frequency, b.merchant, b.account, ver].filter(Boolean).map(esc).join(' · ');
   const k = kind(b);
-  return `<li class="mb-row">
-    <div class="mb-top"><span class="mb-name">${esc(b.name)}</span>${amount}</div>
+  return `<li class="mb-row" data-mb-entry="${esc(b.id)}">
+    <div class="mb-top"><button type="button" class="mb-name" data-mb-open="${esc(b.id)}" style="border:0;background:none;color:inherit;font:inherit;font-weight:700;text-align:left;padding:0;cursor:pointer">${esc(b.name)} <small aria-hidden="true">✎</small></button>${amount}</div>
     <div class="mb-mid"><span class="mb-kind mb-${k}" title="${esc(KIND[k][1])}">${KIND[k][0]}</span><span class="mb-due ${r.cls}">${esc(r.text)}</span><span class="mb-meta">${metaTxt}</span></div>
     ${text ? `<div class="mb-note">${esc(text)}</div>` : ''}
+    <button type="button" class="mb-link" data-mb-open="${esc(b.id)}">Ajustează / înregistrează</button>
     ${links.map((l, i) => `<a class="mb-link" href="${esc(l)}" target="_blank" rel="noopener">Deschide în Tasks${links.length > 1 ? ' ' + (i + 1) : ''} ↗</a>`).join('')}
   </li>`;
 }
@@ -77,7 +78,7 @@ function build() {
   const soon = near.filter(b => payer(b) && dayNum(b.due) >= dayNum(t) && dayNum(b.due) - dayNum(t) <= 7);
   const pastN = near.filter(b => payer(b) && b.due < t).length;
   const head = `<div class="card-header"><div><h2 class="card-title">🧾 Facturi pe date</h2>
-    <div class="card-sub"><b>MANUAL</b> = tu plătești. <b>AUTO</b> = banca debitează, doar verifici. Doar reminder: fără plată, fără înregistrare, fără „plătit”. După ce plătești, bifezi în Tasks și introduci cheltuiala normal.</div></div></div>`;
+    <div class="card-sub"><b>MANUAL</b> = tu plătești. <b>AUTO</b> = banca debitează, doar verifici. Doar reminder: fără plată, fără înregistrare, fără „plătit”. Apeși factura, ajustezi datele și confirmi Înregistrează. Taskul se bifează separat.</div></div></div>`;
   let html = `<section class="card mb-card" data-mb="1">${head}`;
   if (!all.length) html += '<div class="card-sub">Nu există încă facturi în fila „Facturi”.</div>';
   else {
@@ -86,7 +87,7 @@ function build() {
     html += upL.length ? grouped(upL, t) : '<div class="card-sub">Nimic în următoarele 30 de zile.</div>';
     if (later.length) html += `<details class="mb-more"><summary>Mai târziu (${later.length})</summary>${grouped(later, t)}</details>`;
     const sheet = store.state.connection && store.state.connection.sheetUrl;
-    html += `<div class="mb-foot">Datele vin din fila privată „Facturi” din Sheet${sheet ? ` · <a href="${esc(sheet)}" target="_blank" rel="noopener">Deschide Sheet-ul</a>` : ''}. Scadențele și metoda (AUTO/MANUAL) se schimbă acolo.</div>`;
+    html += `<div class="mb-foot">Datele vin din fila privată „Facturi” din Sheet${sheet ? ` · <a href="${esc(sheet)}" target="_blank" rel="noopener">Deschide Sheet-ul</a>` : ''}. Taskurile păstrează reminderele. Cardul deschide înregistrarea cheltuielii, fără plată automată.</div>`;
   }
   html += '</section>';
   return { html, sig: JSON.stringify([t, all.map(b => [b.id, b.name, b.amount, b.currency, b.due, b.note, b.category, b.status, b.frequency])]), dueSoon: soon.length, late: pastN };
@@ -129,3 +130,39 @@ export function installManualBills() {
   apply();
 }
 installManualBills();
+
+// A bill tap prepares a transaction only. Tasks and bill dates are never mutated here.
+function openBillEntry(id) {
+  const b=(store.state.bills||[]).find(x=>x.id===id); if(!b)return;
+  const mm=meta(b);
+  if(mm.m.ruleId){const ruleButton=[...document.querySelectorAll('[data-rr-open]')].find(x=>x.dataset.rrOpen===mm.m.ruleId);if(ruleButton){ruleButton.click();return;}}
+  const occurrence=mm.m.reminderDue||b.due, source='bill-review-v1:'+b.id+'@'+occurrence;
+  const requestId='billreview_'+b.id+'_'+occurrence;
+  const known=()=>store.state.expenses.some(x=>x.id===requestId||x.source===source)||(store.state.pendingQueue||[]).some(x=>(x.expense||x.transfer||{}).id===requestId);
+  const el=document.createElement('dialog');el.className='mb-entry-dialog';
+  el.style.cssText='width:min(94vw,560px);max-height:90dvh;overflow:auto;border:1px solid var(--border);border-radius:16px;padding:20px;background:var(--surface,#fff);color:var(--text);box-sizing:border-box';
+  const accounts=(store.state.accounts||[]).filter(a=>!a.archived&&a.status!=='arhivat'&&(!store.isAccountVisible||store.isAccountVisible(a)));
+  const categories=(store.state.categories||[]).filter(c=>c.active!==false);
+  const options=(arr,label,sel)=>'<option value="">Alege</option>'+arr.map(x=>`<option value="${esc(x.id)}" ${x.id===sel?'selected':''}>${esc(label(x))}</option>`).join('');
+  const account=accounts.find(a=>a.id===b.account);
+  const unknown=mm.m.amountKind==='unknown'||!(Number(b.amount)>1);
+  el.innerHTML=`<form class="form-grid"><div class="btn-row" style="justify-content:space-between"><h3 style="margin:0">Înregistrează: ${esc(b.name)}</h3><button type="button" data-mb-close class="btn btn-secondary" aria-label="Închide">✕</button></div><p class="card-sub">Ajustează datele din plata reală. Nimic nu se înregistrează până nu confirmi. Nu inițiază o plată și nu bifează taskul.</p>${known()?'<p role="alert">Această scadență are deja o înregistrare sau o cerere în așteptare. Verifică în Cheltuieli, fără să o introduci din nou.</p>':''}<div class="field"><label>Tip</label><select class="input" name="type" required><option value="">Alege tipul înregistrării</option><option value="cheltuiala">Cheltuială</option><option value="venit">Venit</option><option value="transfer">Transfer între conturi</option><option value="investitie">Investiție</option></select></div><div class="field"><label>Sumă</label><input class="input" name="amount" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${unknown?'':esc(b.amount)}"></div><div class="field"><label>Cont</label><select class="input" name="account" required>${options(accounts,a=>a.name+' ('+a.currency+')',account?.id)}</select></div><div class="field" data-mb-destination hidden><label>Cont destinație</label><select class="input" name="toAccount">${options(accounts,a=>a.name+' ('+a.currency+')','')}</select><label>Suma primită (din extras, în moneda destinației)</label><input class="input" name="toAmount" type="number" step="0.01" min="0.01"></div><p class="card-sub" data-mb-currency>Reperul facturii: ${esc(b.currency||'monedă de confirmat')}. Verifică suma în moneda contului ales. Nu calculăm conversia.</p><div class="field"><label>Categorie</label><select class="input" name="category">${options(categories,c=>(c.emoji||'')+' '+c.name,b.category)}</select></div><div class="field"><label>Data tranzacției</label><input class="input" name="date" type="date" required value="${today()}"></div><div class="field"><label>Descriere (opțional)</label><input class="input" name="description" value="${esc(b.name)}"></div><div class="field"><label>Metodă plată</label><select class="input" name="method"><option value="">Alege</option>${(store.state.settings.paymentMethods||['Card','Transfer bancar','Numerar']).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select></div><p class="card-sub" style="white-space:pre-wrap">${esc(mm.note.replace(TASKS_RE,''))}</p><p role="status" data-mb-status></p><div class="btn-row"><button type="button" class="btn btn-secondary" data-mb-close>Renunță</button><button class="btn btn-primary" type="submit" ${known()?'disabled':''}>Înregistrează</button></div></form>`;
+  document.body.append(el);el.showModal();const form=el.querySelector('form'),status=el.querySelector('[data-mb-status]'),submit=form.querySelector('[type=submit]');
+  let busy=false,session=null;
+  el.querySelectorAll('[data-mb-close]').forEach(x=>x.onclick=()=>{if(!busy){el.close();el.remove();}});
+  el.addEventListener('cancel',e=>{if(busy)e.preventDefault();else el.remove();});
+  form.elements.account.onchange=()=>{const a=accounts.find(x=>x.id===form.elements.account.value);el.querySelector('[data-mb-currency]').textContent=a?'Suma va fi în '+a.currency+'. Reperul facturii: '+(b.currency||'necunoscut')+'. Verifică suma reală; nu calculăm conversia.':'Alege contul din care s-a plătit.';};
+  form.elements.type.onchange=()=>{el.querySelector('[data-mb-destination]').hidden=!['transfer','investitie'].includes(form.elements.type.value);};
+  form.onsubmit=async e=>{e.preventDefault();if(busy)return;if(known()&&!session){status.textContent='Scadență deja înregistrată sau în așteptare.';submit.disabled=true;return;}
+    const a=accounts.find(x=>x.id===form.elements.account.value);if(!a)return;
+    const type=form.elements.type.value,isTransfer=['transfer','investitie'].includes(type),dst=accounts.find(x=>x.id===form.elements.toAccount.value),received=Number(form.elements.toAmount.value);if(isTransfer&&(!dst||dst.id===a.id||!(received>0))){status.textContent='Alege un cont destinație diferit și suma primită din extras. Nu estimăm conversia.';return;}
+    busy=true;submit.disabled=true;status.textContent='Se păstrează aceeași cerere, fără dublare…';
+    try{session=session||(await import('./transaction-save.js')).createTransactionSaveSession(store,{requestId});
+      const result=await session.save({date:form.elements.date.value,type,toAccount:isTransfer?dst.id:'',toAmount:isTransfer?received:null,amount:Number(form.elements.amount.value),currency:a.currency,account:a.id,category:form.elements.category.value,description:form.elements.description.value,method:form.elements.method.value,merchant:b.merchant||'',source,bill:b.id});
+      status.textContent=['confirmed','local','pending'].includes(result.status)?(result.status==='confirmed'?'Înregistrat. Taskul și data facturii au rămas neschimbate.':result.status==='pending'?'Păstrat pe dispozitiv, se trimite în fundal. Nu introduce din nou.':'Salvat pe acest dispozitiv.'):(result.message||'Salvare neconfirmată. Verifică sincronizarea, fără o cerere nouă.');
+      form.querySelectorAll('input,select').forEach(x=>x.disabled=true);
+    }catch(err){status.textContent=err.message;submit.disabled=false;}finally{busy=false;}
+  };
+}
+
+document.addEventListener('click',e=>{const btn=e.target.closest('[data-mb-open]');const row=e.target.closest('[data-mb-entry]');if(!btn&&(!row||e.target.closest('a,button,input,select,textarea')))return;openBillEntry(btn?btn.dataset.mbOpen:row.dataset.mbEntry);});
