@@ -208,3 +208,5 @@ export async function setRecurrenceEngine(webAppUrl, pin, enabled) { return post
 export async function skipRecurrenceOccurrence(webAppUrl, pin, ruleId, date) { return postToScript(webAppUrl, {action:'skipRecurrenceOccurrence',pin,ruleId,date}); }
 export async function savePushSubscription(webAppUrl, pin, endpoint) { return postToScript(webAppUrl, {action:'savePushSubscription',pin,endpoint}); }
 export async function removePushSubscription(webAppUrl, pin, endpoint) { return postToScript(webAppUrl, {action:'removePushSubscription',pin,endpoint}); }
+
+export async function saveBillDefaults(webAppUrl,pin,billId,defaults,expectedNote){return postToScript(webAppUrl,{action:'saveBillDefaults',pin,billId,defaults,expectedNote});}
