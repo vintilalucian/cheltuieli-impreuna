@@ -17,7 +17,7 @@ const TASKS_RE = /https:\/\/tasks\.google\.com\/[^\s)]+/g;
 
 function rel(due, t) {
   const d = dayNum(due) - dayNum(t);
-  if (d < 0) return { text: `întârziat ${-d} ${-d === 1 ? 'zi' : 'zile'}`, cls: 'late' };
+  if (d < 0) return { text: `dată trecută (${-d} ${-d === 1 ? 'zi' : 'zile'}), verifică în Tasks`, cls: 'past' };
   if (d === 0) return { text: 'azi', cls: 'soon' };
   if (d === 1) return { text: 'mâine', cls: 'soon' };
   return { text: `în ${d} zile`, cls: d <= 7 ? 'soon' : '' };
@@ -51,7 +51,8 @@ function row(b, t) {
   const r = rel(b.due, t);
   const unknown = mm.m.amountKind === 'unknown' || !(Number(b.amount) > 1);
   const amount = unknown ? '<span class="mb-amt mb-unk">sumă de confirmat</span>' : `<span class="mb-amt">${esc(money(b.amount, b.currency))} <i>reper</i></span>`;
-  const metaTxt = [FREQ[b.frequency] || b.frequency, b.merchant, b.account].filter(Boolean).map(esc).join(' · ');
+  const ver = /^\d{4}-\d{2}-\d{2}$/.test(String(mm.m.verifiedAt || '')) ? 'verificat ' + new Intl.DateTimeFormat('ro-RO', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(mm.m.verifiedAt + 'T12:00:00Z')) : '';
+  const metaTxt = [FREQ[b.frequency] || b.frequency, b.merchant, b.account, ver].filter(Boolean).map(esc).join(' · ');
   const k = kind(b);
   return `<li class="mb-row">
     <div class="mb-top"><span class="mb-name">${esc(b.name)}</span>${amount}</div>
@@ -73,19 +74,22 @@ function build() {
   const near = all.filter(b => dayNum(b.due) - dayNum(t) <= 31);
   const later = all.filter(b => dayNum(b.due) - dayNum(t) > 31);
   const payer = b => kind(b) !== 'auto';
-  const soon = near.filter(b => payer(b) && dayNum(b.due) - dayNum(t) <= 7);
+  const soon = near.filter(b => payer(b) && dayNum(b.due) >= dayNum(t) && dayNum(b.due) - dayNum(t) <= 7);
+  const pastN = near.filter(b => payer(b) && b.due < t).length;
   const head = `<div class="card-header"><div><h2 class="card-title">🧾 Facturi pe date</h2>
     <div class="card-sub"><b>MANUAL</b> = tu plătești. <b>AUTO</b> = banca debitează, doar verifici. Doar reminder: fără plată, fără înregistrare, fără „plătit”. După ce plătești, bifezi în Tasks și introduci cheltuiala normal.</div></div></div>`;
   let html = `<section class="card mb-card" data-mb="1">${head}`;
   if (!all.length) html += '<div class="card-sub">Nu există încă facturi în fila „Facturi”.</div>';
   else {
-    html += near.length ? grouped(near, t) : '<div class="card-sub">Nimic în următoarele 30 de zile.</div>';
+    const pastL = near.filter(b => b.due < t), upL = near.filter(b => b.due >= t);
+    if (pastL.length) html += `<div class="mb-pastbox"><h3 class="mb-dayh">Dată trecută, de actualizat <span class="mb-count">${pastL.length}</span></h3><div class="card-sub">Data din Sheet a trecut. Nu înseamnă plătit sau neplătit: verifică în Tasks.</div>${grouped(pastL, t)}</div>`;
+    html += upL.length ? grouped(upL, t) : '<div class="card-sub">Nimic în următoarele 30 de zile.</div>';
     if (later.length) html += `<details class="mb-more"><summary>Mai târziu (${later.length})</summary>${grouped(later, t)}</details>`;
     const sheet = store.state.connection && store.state.connection.sheetUrl;
     html += `<div class="mb-foot">Datele vin din fila privată „Facturi” din Sheet${sheet ? ` · <a href="${esc(sheet)}" target="_blank" rel="noopener">Deschide Sheet-ul</a>` : ''}. Scadențele și metoda (AUTO/MANUAL) se schimbă acolo.</div>`;
   }
   html += '</section>';
-  return { html, sig: JSON.stringify([t, all.map(b => [b.id, b.name, b.amount, b.currency, b.due, b.note, b.category, b.status, b.frequency])]), dueSoon: soon.length, late: soon.filter(b => b.due < t).length };
+  return { html, sig: JSON.stringify([t, all.map(b => [b.id, b.name, b.amount, b.currency, b.due, b.note, b.category, b.status, b.frequency])]), dueSoon: soon.length, late: pastN };
 }
 
 export function installManualBills() {
@@ -106,7 +110,7 @@ export function installManualBills() {
       exb?.remove();
       const btn = document.createElement('button');
       btn.className = 'mb-banner'; btn.dataset.mbBanner = '1'; btn.dataset.sig = key; btn.dataset.view = 'recurrences';
-      btn.textContent = `🧾 Facturi pe date: ${n} ${n === 1 ? 'scadență' : 'scadențe'} de verificat în 7 zile${b.late ? `, ${b.late} cu data trecută` : ''} (reminder, nu sold)`;
+      btn.textContent = `🧾 Facturi pe date: ${n} ${n === 1 ? 'scadență' : 'scadențe'} în 7 zile${b.late ? `, ${b.late} cu data trecută de verificat în Tasks` : ''} (reminder, nu sold)`;
       root.prepend(btn);
       return;
     }
