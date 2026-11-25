@@ -1300,3 +1300,5 @@ button, input, select, textarea {
 .mb-auto { background:#bbf7d0; color:#14532d; }
 .mb-unknown { background:#e5e7eb; color:#374151; }
 .mb-income { background:#dbeafe; color:#1e3a8a; }
+.mb-due.past { color:#64748b; font-weight:600; }
+.mb-pastbox { margin-top:10px; padding:2px 10px 8px; border-radius:10px; background:rgba(100,116,139,.12); }
