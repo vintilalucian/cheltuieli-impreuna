@@ -1,3 +1,4 @@
+import { reportView } from "./report-ui.js";
 import { formatMoney } from "./insights.js";
 
 /**
@@ -82,7 +83,7 @@ export function renderDonutChart(byCategory, total, baseCur) {
     })
     .join("");
 
-  return `
+  const chart = `
     <div class="donut-layout">
       <div class="donut-svg-wrap">
         <svg viewBox="0 0 ${size} ${size}" class="donut-svg" aria-label="Cheltuieli pe categorii">
@@ -95,6 +96,7 @@ export function renderDonutChart(byCategory, total, baseCur) {
       <div class="donut-legend">${legend}</div>
     </div>
   `;
+  return reportView('categories', chart, ['Categorie','Înregistrări','Cheltuieli nete','Pondere'], byCategory.map(c=>({attr:`data-chart-category="${escapeHtml(c.id)}" class="tappable" role="button" tabindex="0"`,cells:[c.name,c.count,formatMoney(c.total,baseCur),Math.round(c.pct)+'%']})), ['Total raport',formatMoney(total,baseCur)]);
 }
 
 /**
@@ -147,7 +149,7 @@ export function renderMonthlyTrendChart(trend6Months, budget, p1Name, p2Name, ba
     `;
   }
 
-  return `
+  const chart = `
     <div class="trend-chart-wrap">
       <svg viewBox="0 0 ${w} ${h}" class="trend-svg" aria-label="Evoluție ultimele 6 luni">
         ${budgetLine}
@@ -160,6 +162,7 @@ export function renderMonthlyTrendChart(trend6Months, budget, p1Name, p2Name, ba
       </div>
     </div>
   `;
+  return reportView('monthly',chart,['Lună',p1Name,...(p2Name?[p2Name]:[]),'Total brut'],trend6Months.map(m=>({attr:`data-chart-month="${m.year}-${m.month}" class="tappable" role="button" tabindex="0"`,cells:[m.label+' '+m.year,formatMoney(m.p1,baseCur),...(p2Name?[formatMoney(m.p2,baseCur)]:[]),formatMoney(m.total,baseCur)]})),['Total 6 luni',formatMoney(trend6Months.reduce((s,m)=>s+m.total,0),baseCur)]);
 }
 
 /**
@@ -193,11 +196,12 @@ export function renderDailyBarsChart(dailyTotals, baseCur) {
     })
     .join("");
 
-  return `
+  const chart = `
     <svg viewBox="0 0 ${w} ${h}" class="daily-svg" aria-label="Cheltuieli pe zile">
       ${bars}
     </svg>
   `;
+  return reportView('daily',chart,['Zi','Cheltuieli brute'],dailyTotals.map(d=>({attr:`data-chart-day="${d.day}" class="tappable" role="button" tabindex="0"`,cells:[d.day,formatMoney(d.total,baseCur)]})),['Total brut lunar',formatMoney(dailyTotals.reduce((s,d)=>s+d.total,0),baseCur)]);
 }
 
 function formatCompact(num) {
