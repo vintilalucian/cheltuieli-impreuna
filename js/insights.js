@@ -1,5 +1,5 @@
 import { DAYS_RO, MONTHS_SHORT_RO } from "./defaults.js";
-import { computeLedgerSummary, computeAccountBalances, round2 } from "./ledger.js";
+import { computeLedgerSummary, computeAccountBalances, baseEquivalentStatus, round2 } from "./ledger.js";
 
 export function formatMoney(amount, currencySymbolOrCode = "RON") {
   const num = Number(amount) || 0;
@@ -42,7 +42,7 @@ export function computeMonthlyAnalytics(store, year, month, scope = "all") {
   // Tranzacții care intră în cheltuieli (cheltuieli + rambursări care reduc cheltuiala netă; exclus transferuri/investiții/ajustări)
   const expenseLike = allVisibleMonth.filter((e) => {
     const t = e.type || "cheltuiala";
-    return t === "cheltuiala" || (t === "venit" && String(e.category || "").toLowerCase() === "rambursari");
+    return (store.state.isDemoMode || baseEquivalentStatus(e,baseCur) !== "unverified") && (t === "cheltuiala" || (t === "venit" && String(e.category || "").toLowerCase() === "rambursari"));
   });
 
   // Împărțire pe parteneri (cheltuieli nete)
@@ -139,7 +139,7 @@ export function computeMonthlyAnalytics(store, year, month, scope = "all") {
     let mP1 = 0;
     let mP2 = 0;
     mTx.forEach((e) => {
-      if ((e.type || "cheltuiala") !== "cheltuiala") return;
+      if ((e.type || "cheltuiala") !== "cheltuiala" || (!store.state.isDemoMode && baseEquivalentStatus(e,baseCur) === "unverified")) return;
       if (store.isPartner2(e.owner)) mP2 += Number(e.baseAmount) || 0;
       else if (store.isPartner1(e.owner)) mP1 += Number(e.baseAmount) || 0;
     });
