@@ -217,6 +217,9 @@ function buildInsights(ctx) {
     });
   }
 
+  if ((ledger.approximateRows || []).length > 0) {
+    list.push({ type:"warning", icon:"≈", title:"Echivalente aproximative incluse", text:`${ledger.approximateRows.length} tranzacție(ii) folosesc cursul introdus manual. Echivalentele sunt incluse în totaluri, fără schimbarea valorilor salvate.` });
+  }
   if ((ledger.exceptionRows || []).length > 0) {
     list.push({
       type: "warning",
