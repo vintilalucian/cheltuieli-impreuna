@@ -1,8 +1,8 @@
-const BUILD_ID = "2026-11-27.59"; // bump on every release (release script/test replaces this)
+const BUILD_ID = "2026-11-27.60"; // bump on every release (release script/test replaces this)
 const CACHE_NAME = "buget-familie-" + BUILD_ID;
 const ASSETS = [
   "./", "./index.html", "./manifest.json", "./icons/icon.svg", "./css/styles.css",
-  "./js/defaults.js", "./js/ledger.js", "./js/importer.js", "./js/store.js", "./js/sheets-api.js",
+  "./js/conflict-ack-core.js", "./js/conflict-ack-ui.js", "./js/defaults.js", "./js/ledger.js", "./js/importer.js", "./js/store.js", "./js/sheets-api.js",
   "./js/transaction-save.js", "./js/inline-category.js", "./js/recurrences-ui.js", "./js/review-banner.js", "./js/manual-bills.js", "./js/update-fix.js", "./js/insights.js", "./js/charts.js", "./js/report-ui.js", "./js/excel.js", "./js/app.js", "./js/person-tags.js"
 ];
 
