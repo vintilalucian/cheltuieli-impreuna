@@ -210,3 +210,5 @@ export async function savePushSubscription(webAppUrl, pin, endpoint) { return po
 export async function removePushSubscription(webAppUrl, pin, endpoint) { return postToScript(webAppUrl, {action:'removePushSubscription',pin,endpoint}); }
 
 export async function saveBillDefaults(webAppUrl,pin,billId,defaults,expectedNote){return postToScript(webAppUrl,{action:'saveBillDefaults',pin,billId,defaults,expectedNote});}
+
+export async function savePersonTag(webAppUrl,pin,payload){return postToScript(webAppUrl,{action:"savePersonTag",pin,...payload});}
