@@ -1,5 +1,5 @@
 const normalize = (s) => String(s || '').trim().replace(/\s+/g, ' ').normalize('NFC').toLocaleLowerCase('ro-RO');
-const kindOf = (c) => (c.type || c.kind) === 'venit' ? 'venit' : 'cheltuiala';
+const kindOf = (c) => ['venit','transfer','imprumut','investitie','ajustare'].includes(c.type || c.kind) ? (c.type || c.kind) : 'cheltuiala';
 const matches = (c, name, kind) => c && c.active !== false && normalize(c.name) === normalize(name) && kindOf(c) === kind;
 export function createInlineCategorySession(store, { makeId = () => 'cat-' + crypto.randomUUID() } = {}) {
   const expectedVersion = store.state.tableVersions.categories;
@@ -20,7 +20,7 @@ export function createInlineCategorySession(store, { makeId = () => 'cat-' + cry
   };
   const save = async ({name, kind}) => {
     name = String(name || '').trim().replace(/\s+/g, ' ');
-    kind = kind === 'venit' ? 'venit' : 'cheltuiala';
+    kind = ['venit','transfer','imprumut','investitie','ajustare'].includes(kind) ? kind : 'cheltuiala';
     if (!name) throw new Error('Completează numele categoriei.');
     if (name.length > 60) throw new Error('Numele poate avea cel mult 60 de caractere.');
     if (!entry) {
