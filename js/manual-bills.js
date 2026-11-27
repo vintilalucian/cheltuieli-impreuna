@@ -140,7 +140,7 @@ export function installManualBills() {
     const ex = root.querySelector('[data-mb]');
     const exb = root.querySelector('[data-mb-banner]');
     if (view !== 'recurrences' && view !== 'dashboard') { ex?.remove(); exb?.remove(); return; }
-    if (view === 'recurrences' && root.querySelector('[data-dated-agenda]')) { ex?.remove(); exb?.remove(); return; }
+    if (view === 'recurrences') { ex?.remove(); exb?.remove(); return; }
     const b = build();
     if (view === 'dashboard') {
       ex?.remove();
