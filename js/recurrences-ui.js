@@ -1,7 +1,7 @@
 import { readRecurrences, saveRecurrence, skipRecurrenceOccurrence, savePushSubscription, removePushSubscription } from './sheets-api.js';
 import { createTransactionSaveSession } from './transaction-save.js';
 import { store } from './store.js';
-import { ruleMethodLabel } from './manual-bills.js';
+import { ruleMethodLabel, renderDatedAgenda } from './manual-bills.js';
 
 // Review-before-post. A due occurrence is only a card. Nothing reaches the ledger until the user taps "Înregistrează",
 // and then it goes through the same save pipeline as a manual entry, with a stable ID and source for the occurrence.
@@ -67,7 +67,7 @@ export function createRecurrenceView({ context, refresh, notify }) {
     const label=isE?'Mai devreme':i.state==='today'?'Azi':`Întârziat ${late} ${late===1?'zi':'zile'}`;
     const opts=(sel,skip)=>'<option value="">Alege contul</option>'+accounts().filter(a=>a.id!==skip).map(a=>`<option value="${esc(a.id)}" ${sel===a.id?'selected':''}>${esc(a.name)} (${esc(a.currency)})</option>`).join('');
     const cur=accObj(d.account)?.currency||i.currency, k=esc(i.key), isT=i.type==='transfer'||i.type==='investitie', dcur=accObj(d.toAccount)?.currency||'';
-    return `<article class="card rr-review-card ${cls}" data-card="${k}"><div class="rr-rule-head"><div><strong class="rr-title">${esc(i.name)}</strong><div class="card-sub">${esc(typeLabel[i.type]||i.type)} · scadență ${esc(fmtDate(i.date))}</div></div><span class="badge">${esc(label)}</span></div>`+
+    return `<article class="card rr-review-card ${cls}" data-card="${k}"><div class="rr-rule-head"><div><strong class="rr-title">${esc(i.name)}</strong> ${ruleMethodLabel(i.ruleId,i.type)}<div class="card-sub">${esc(typeLabel[i.type]||i.type)} · scadență ${esc(fmtDate(i.date))}</div></div><span class="badge">${esc(label)}</span></div>`+
       (i.note?`<p class="rr-note" style="white-space:pre-wrap">${esc(i.note)}</p>`:'')+
       `<div class="form-grid rr-editor-grid"><div class="field"><label>Sumă (<span data-cur="${k}">${esc(cur)}</span>)</label><input class="input" inputmode="decimal" data-f="amount" data-k="${k}" value="${esc(d.amount)}"></div>`+
       `<div class="field"><label>${isT?'Din contul':'Cont'}</label><select class="input" data-f="account" data-k="${k}">${opts(d.account)}</select></div>`+
@@ -133,8 +133,8 @@ export function createRecurrenceView({ context, refresh, notify }) {
     if(editing) return header()+errorHtml+form(draft||rule());
     if(selected&&rule()) return header()+errorHtml+detail(rule());
     const items=pendingItems().slice().sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name,'ro'));
-    const review=items.length?`<h2 class="card-title">De verificat (${items.length})</h2>${items.map(reviewCard).join('')}`:'<section class="card"><h2 class="card-title">De verificat</h2><p>Nicio scadență de verificat acum.</p></section>';
-    return header()+errorHtml+review+pushSection()+rulesList();
+    const agenda = renderDatedAgenda(items.map(i => ({date:i.date,name:i.name||'',html:reviewCard(i)})));
+    return header()+errorHtml+agenda+pushSection()+rulesList();
   }
 
   async function post(key) {
