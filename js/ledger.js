@@ -482,7 +482,8 @@ export function computeAccountBalances(accounts, transactions, currencies = [], 
 /**
  * Status of the base-currency (EUR) equivalent of a row.
  * "base": row is in the base currency. "source": non-base row that carries an explicit equivalent
- * imported from TimelyBills (Sursă "tb-..."), with a coherent rate. "unverified": anything else,
+ * imported from TimelyBills (Sursă "tb-..."), with a coherent rate.
+ * "manual": explicit coherent native equivalent, counted as approximate. "unverified": anything else,
  * never counted in base totals (no fallback to the Valute table rate).
  */
 export function baseEquivalentStatus(tx, baseCurrency) {
@@ -494,12 +495,17 @@ export function baseEquivalentStatus(tx, baseCurrency) {
   // A source prefix alone proves nothing: the equivalent must be explicit, positive, in a valid
   // currency code, and amount x rate must reproduce it (same tolerance as the integrity check).
   const okNums = Number.isFinite(b) && b > 0 && Number.isFinite(a) && a > 0 && Number.isFinite(r) && r > 0;
-  if (/^tb-/.test(src) && /^[A-Z]{3}$/.test(cur) && okNums && !checkBaseAmountConsistency(a, r, b).mismatch) return "source";
+  const explicit = tx && tx.rate !== undefined && tx.rate !== null && tx.rate !== "" && tx.baseAmount !== undefined && tx.baseAmount !== null && tx.baseAmount !== "";
+  const coherent = explicit && /^[A-Z]{3}$/.test(cur) && okNums && !checkBaseAmountConsistency(a, r, b).mismatch;
+  if (/^tb-/.test(src) && coherent) return "source";
+  // Native saved entries carry the user's explicit stored equivalent. Never fill missing values.
+  if (/^op:entry_/.test(src) && coherent) return "manual";
   return "unverified";
 }
 
 export function computeLedgerSummary(transactions, opts = {}) {
   const exceptionRows = [];
+  const approximateRows = [];
   let venituri = 0;
   let cheltuieliBrute = 0;
   let rambursariComerciant = 0;
@@ -516,10 +522,11 @@ export function computeLedgerSummary(transactions, opts = {}) {
       return;
     }
     const tx = normalizeTx(rawTx);
-    if (opts.baseCurrency && tx.type !== "ajustare" && baseEquivalentStatus(tx, opts.baseCurrency) === "unverified") {
+    if (opts.baseCurrency && tx.type !== "ajustare" && baseEquivalentStatus(rawTx, opts.baseCurrency) === "unverified") {
       exceptionRows.push(tx);
       return;
     }
+    if (opts.baseCurrency && baseEquivalentStatus(rawTx, opts.baseCurrency) === "manual") approximateRows.push(tx);
     if (v.baseMismatch) {
       mismatchRows.push({ tx, warnings: v.warnings });
     }
@@ -566,6 +573,7 @@ export function computeLedgerSummary(transactions, opts = {}) {
     ajustariCount,
     invalidRows,
     mismatchRows,
-    exceptionRows
+    exceptionRows,
+    approximateRows
   };
 }
