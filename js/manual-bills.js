@@ -42,7 +42,7 @@ export function ruleMethodLabel(ruleId, ruleType) {
   k = norm(k);
   return `<span class="mb-kind mb-${k}" title="${esc(KIND[k][1])}">${KIND[k][0]}</span>`;
 }
-var KIND = { auto: ['AUTO · de verificat', 'banca debitează automat, doar verifici'], manual: ['MANUAL', 'tu plătești'], unknown: ['METODĂ NECONFIRMATĂ', 'nu se știe încă cum se plătește'] };
+var KIND = { auto: ['AUTO', 'banca debitează automat, doar verifici'], manual: ['MANUAL', 'tu plătești'], unknown: ['METODĂ NECONFIRMATĂ', 'nu se știe încă cum se plătește'] };
 
 export function billOccurrenceState(b, state) {
   const due = meta(b).m.reminderDue || b.due;
@@ -124,7 +124,7 @@ export function renderDatedAgenda(reviews = []) {
   items.forEach(item => { let g=groups[groups.length-1]; if(!g || g.date!==item.date)groups.push(g={date:item.date,items:[]}); g.items.push(item); });
   const renderGroups = gs => gs.map(g => `<section class="mb-day" data-agenda-date="${esc(g.date)}"><h3 class="mb-dayh">${g.date===t?'Azi · ':''}${esc(fmtDate(g.date))} <span class="mb-count">${g.items.length}</span></h3>${g.items.map(i=>i.html).join('')}</section>`).join('');
   const near = groups.filter(g => dayNum(g.date)-dayNum(t)<=31), later=groups.filter(g => dayNum(g.date)-dayNum(t)>31);
-  let html = `<section class="card mb-card" data-dated-agenda="1"><div class="card-header"><div><h2 class="card-title">Facturi pe date</h2><div class="card-sub">Facturi și recurențe împreună, după data scadenței. MANUAL = tu plătești. AUTO · de verificat = banca debitează, tu verifici suma și conturile înainte de Înregistrează. Nimic nu se plătește sau înregistrează automat.</div></div></div>`;
+  let html = `<section class="card mb-card" data-dated-agenda="1"><div class="card-header"><div><h2 class="card-title">Facturi pe date</h2><div class="card-sub">Facturi și recurențe împreună, după data scadenței. MANUAL = tu plătești. AUTO = banca debitează, tu verifici suma și conturile înainte de Înregistrează. Nimic nu se plătește sau înregistrează automat.</div></div></div>`;
   html += near.length ? renderGroups(near) : '<p class="card-sub">Nicio scadență de verificat în următoarele 31 de zile.</p>';
   if(later.length)html += `<details class="mb-more"><summary>Mai târziu (${later.reduce((n,g)=>n+g.items.length,0)})</summary>${renderGroups(later)}</details>`;
   if(pending.length)html += `<div class="mb-pastbox"><h3>În curs de sincronizare (${pending.length})</h3>${grouped(pending.slice().sort((a,b)=>a.due.localeCompare(b.due)),t)}</div>`;
