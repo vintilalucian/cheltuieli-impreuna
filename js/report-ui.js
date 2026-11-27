@@ -6,11 +6,11 @@ export function detailAmount(tx, base, demo = false) {
   const original = formatMoney(tx.amount, tx.currency || base);
   if (!tx.currency || tx.currency === base) return original;
   return original + (!demo && baseEquivalentStatus(tx, base) === 'unverified'
-    ? ` (fără echivalent ${base} verificat)` : ` (${formatMoney(tx.baseAmount, base)})`);
+    ? ` (fără echivalent ${base} verificat)` : ` (${baseEquivalentStatus(tx,base) === "manual" ? "≈ " : ""}${formatMoney(tx.baseAmount, base)}${baseEquivalentStatus(tx,base) === "manual" ? ", curs introdus manual" : ""})`);
 }
 export function filteredSummary(rows, base, demo = false) {
   const ledger = computeLedgerSummary(rows, {baseCurrency: demo ? null : base});
-  return `<div class="report-filter-total" role="status"><strong>${rows.length} înregistrări în filtru</strong><span>Cheltuieli nete: ${formatMoney(ledger.cheltuieliNete,base)}</span><span>Venituri: ${formatMoney(ledger.venituri,base)}</span><span>Balanță netă: ${formatMoney(ledger.balantaNeta,base)}</span>${ledger.exceptionRows.length ? `<small>${ledger.exceptionRows.length} fără echivalent ${esc(base)} verificat, excluse din totaluri.</small>` : ''}<small>Transferurile, investițiile și ajustările nu intră în cheltuieli sau venituri.</small></div>`;
+  return `<div class="report-filter-total" role="status"><strong>${rows.length} înregistrări în filtru</strong><span>Cheltuieli nete: ${formatMoney(ledger.cheltuieliNete,base)}</span><span>Venituri: ${formatMoney(ledger.venituri,base)}</span><span>Balanță netă: ${formatMoney(ledger.balantaNeta,base)}</span>${ledger.approximateRows.length ? `<small>${ledger.approximateRows.length} echivalent(e) aproximativ(e), din curs introdus manual, incluse în totaluri.</small>` : ''}${ledger.exceptionRows.length ? `<small>${ledger.exceptionRows.length} fără echivalent ${esc(base)} verificat, excluse din totaluri.</small>` : ''}<small>Transferurile, investițiile și ajustările nu intră în cheltuieli sau venituri.</small></div>`;
 }
 export function reportView(key, chart, headers, rows, footer) {
   const table = modes.get(key) === 'table';
