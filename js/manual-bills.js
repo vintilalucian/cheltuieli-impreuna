@@ -42,7 +42,7 @@ export function ruleMethodLabel(ruleId, ruleType) {
   k = norm(k);
   return `<span class="mb-kind mb-${k}" title="${esc(KIND[k][1])}">${KIND[k][0]}</span>`;
 }
-var KIND = { auto: ['AUTO', 'banca debitează automat, doar verifici'], manual: ['MANUAL', 'tu plătești'], unknown: ['METODĂ NECONFIRMATĂ', 'nu se știe încă cum se plătește'] };
+var KIND = { auto: ['AUTO · de verificat', 'banca debitează automat, doar verifici'], manual: ['MANUAL', 'tu plătești'], unknown: ['METODĂ NECONFIRMATĂ', 'nu se știe încă cum se plătește'] };
 
 export function billOccurrenceState(b, state) {
   const due = meta(b).m.reminderDue || b.due;
@@ -110,6 +110,28 @@ function build() {
   return { html, sig: JSON.stringify([t, all.map(b => [b.id, b.name, b.amount, b.currency, b.due, b.note, b.category, b.status, b.frequency, billOccurrenceState(b, store.state)])]), dueSoon: soon.length, late: pastN };
 }
 
+// One date-first agenda for both private-sheet reminders and review occurrences.
+// Presentation only: existing entry handlers and save paths remain unchanged.
+export function renderDatedAgenda(reviews = []) {
+  const t = today();
+  const bills = (store.state.bills || []).filter(b => b && b.due && b.status !== 'oprita' && meta(b).m.agenda !== false);
+  const open = bills.filter(b => billOccurrenceState(b, store.state) === 'open');
+  const pending = bills.filter(b => billOccurrenceState(b, store.state) === 'pending');
+  const recorded = bills.filter(b => billOccurrenceState(b, store.state) === 'recorded');
+  const items = [...open.map(b => ({ date: b.due, name: b.name || '', html: `<ul class="mb-list">${row(b,t)}</ul>` })), ...reviews]
+    .sort((a,b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name,'ro'));
+  const groups = [];
+  items.forEach(item => { let g=groups[groups.length-1]; if(!g || g.date!==item.date)groups.push(g={date:item.date,items:[]}); g.items.push(item); });
+  const renderGroups = gs => gs.map(g => `<section class="mb-day" data-agenda-date="${esc(g.date)}"><h3 class="mb-dayh">${g.date===t?'Azi · ':''}${esc(fmtDate(g.date))} <span class="mb-count">${g.items.length}</span></h3>${g.items.map(i=>i.html).join('')}</section>`).join('');
+  const near = groups.filter(g => dayNum(g.date)-dayNum(t)<=31), later=groups.filter(g => dayNum(g.date)-dayNum(t)>31);
+  let html = `<section class="card mb-card" data-dated-agenda="1"><div class="card-header"><div><h2 class="card-title">Facturi pe date</h2><div class="card-sub">Facturi și recurențe împreună, după data scadenței. MANUAL = tu plătești. AUTO · de verificat = banca debitează, tu verifici suma și conturile înainte de Înregistrează. Nimic nu se plătește sau înregistrează automat.</div></div></div>`;
+  html += near.length ? renderGroups(near) : '<p class="card-sub">Nicio scadență de verificat în următoarele 31 de zile.</p>';
+  if(later.length)html += `<details class="mb-more"><summary>Mai târziu (${later.reduce((n,g)=>n+g.items.length,0)})</summary>${renderGroups(later)}</details>`;
+  if(pending.length)html += `<div class="mb-pastbox"><h3>În curs de sincronizare (${pending.length})</h3>${grouped(pending.slice().sort((a,b)=>a.due.localeCompare(b.due)),t)}</div>`;
+  if(recorded.length)html += `<details class="mb-more"><summary>Înregistrate în Cheltuieli (${recorded.length})</summary><p>Scadențele de mai jos sunt înregistrate. Recurența și reminderele viitoare se păstrează.</p>${grouped(recorded.slice().sort((a,b)=>a.due.localeCompare(b.due)),t)}</details>`;
+  return html + '<p class="card-sub">Data trecută nu înseamnă plătit sau neplătit. Taskurile se verifică și se bifează separat.</p></section>';
+}
+
 export function installManualBills() {
   const root = document.querySelector('#view-root');
   if (!root) return;
@@ -118,6 +140,7 @@ export function installManualBills() {
     const ex = root.querySelector('[data-mb]');
     const exb = root.querySelector('[data-mb-banner]');
     if (view !== 'recurrences' && view !== 'dashboard') { ex?.remove(); exb?.remove(); return; }
+    if (view === 'recurrences' && root.querySelector('[data-dated-agenda]')) { ex?.remove(); exb?.remove(); return; }
     const b = build();
     if (view === 'dashboard') {
       ex?.remove();
