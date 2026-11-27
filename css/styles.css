@@ -1320,3 +1320,15 @@ button.mb-link { cursor:pointer; }
 [data-theme="dark"] .mb-unk,
 [data-theme="dark"] .mb-due.soon { color:#fbbf24; }
 [data-theme="dark"] .mb-due.late { color:#fca5a5; }
+
+/* Transaction badges wrap instead of being clipped by the title row. */
+.tx-title { white-space:normal; overflow:visible; flex-wrap:wrap; }
+.tx-title > span { min-width:0; overflow-wrap:anywhere; }
+.tx-title .badge { flex-shrink:0; white-space:normal; }
+@media(max-width:480px) {
+  .tx-item { display:grid; grid-template-columns:40px minmax(0,1fr); }
+  .tx-icon { grid-column:1; grid-row:1 / span 2; }
+  .tx-main { grid-column:2; }
+  .tx-right { grid-column:2; text-align:left; min-width:0; }
+  .tx-orig { overflow-wrap:anywhere; }
+}
