@@ -44,21 +44,32 @@ export function ruleMethodLabel(ruleId, ruleType) {
 }
 var KIND = { auto: ['AUTO', 'banca debitează automat, doar verifici'], manual: ['MANUAL', 'tu plătești'], unknown: ['METODĂ NECONFIRMATĂ', 'nu se știe încă cum se plătește'] };
 
+export function billOccurrenceState(b, state) {
+  const due = meta(b).m.reminderDue || b.due;
+  const source = 'bill-review-v1:' + b.id + '@' + due;
+  const id = 'billreview_' + b.id + '_' + due;
+  const record = (state.expenses || []).find(x => x.id === id || x.source === source);
+  if ((state.pendingQueue || []).some(x => { const op = x.op || x; const tx = op.expense || op.transfer || {}; return tx.id === id || tx.source === source; }) || record?.pendingSync) return 'pending';
+  if (record) return 'recorded';
+  return 'open';
+}
+
 function row(b, t) {
   const mm = meta(b), noteText = mm.note;
   const links = [...new Set([...(Array.isArray(mm.m.taskUrls) ? mm.m.taskUrls.filter(u => /^https:\/\/tasks\.google\.com\//.test(String(u))) : []), ...(noteText.match(TASKS_RE) || [])])];
   const text = noteText.replace(TASKS_RE, '').replace(/[ \t]*[|·-]?[ \t]*$/gm, '').replace(/\n{2,}/g, '\n').trim();
-  const r = rel(b.due, t);
+  const occurrenceState = billOccurrenceState(b, store.state);
+  const r = occurrenceState === 'recorded' ? {text:'Înregistrată',cls:''} : occurrenceState === 'pending' ? {text:'În curs de sincronizare',cls:''} : rel(b.due, t);
   const unknown = mm.m.amountKind === 'unknown' || !(Number(b.amount) > 1);
   const amount = unknown ? '<span class="mb-amt mb-unk">sumă de confirmat</span>' : `<span class="mb-amt">${esc(money(b.amount, b.currency))} <i>reper</i></span>`;
   const ver = /^\d{4}-\d{2}-\d{2}$/.test(String(mm.m.verifiedAt || '')) ? 'verificat ' + new Intl.DateTimeFormat('ro-RO', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(mm.m.verifiedAt + 'T12:00:00Z')) : '';
   const metaTxt = [FREQ[b.frequency] || b.frequency, b.merchant, b.account, ver].filter(Boolean).map(esc).join(' · ');
   const k = kind(b);
   return `<li class="mb-row" data-mb-entry="${esc(b.id)}">
-    <div class="mb-top"><button type="button" class="mb-name" data-mb-open="${esc(b.id)}" style="border:0;background:none;color:inherit;font:inherit;font-weight:700;text-align:left;padding:0;cursor:pointer">${esc(b.name)} <small aria-hidden="true">✎</small></button>${amount}</div>
+    <div class="mb-top"><button type="button" class="mb-name" ${occurrenceState==='open'?`data-mb-open="${esc(b.id)}"`:''} style="border:0;background:none;color:inherit;font:inherit;font-weight:700;text-align:left;padding:0;cursor:pointer">${esc(b.name)} <small aria-hidden="true">✎</small></button>${amount}</div>
     <div class="mb-mid"><span class="mb-kind mb-${k}" title="${esc(KIND[k][1])}">${KIND[k][0]}</span><span class="mb-due ${r.cls}">${esc(r.text)}</span><span class="mb-meta">${metaTxt}</span></div>
     ${text ? `<div class="mb-note">${esc(text)}</div>` : ''}
-    <button type="button" class="mb-link" data-mb-open="${esc(b.id)}">Înregistrează</button>
+    ${occurrenceState==='open'?`<button type="button" class="mb-link" data-mb-open="${esc(b.id)}">Înregistrează</button>`:`<span class="mb-link" role="status">${occurrenceState==='recorded'?'Înregistrată în Cheltuieli':'În așteptare pe dispozitiv. Nu introduce din nou.'}</span>`}
     <button type="button" class="mb-link" data-mb-edit="${esc(b.id)}">Editează recurența</button>
     ${links.map((l, i) => `<a class="mb-link" href="${esc(l)}" target="_blank" rel="noopener">Task${links.length > 1 ? ' ' + (i + 1) : ''} ↗</a>`).join('')}
   </li>`;
@@ -73,8 +84,11 @@ function grouped(list, t) {
 function build() {
   const t = today();
   const all = (store.state.bills || []).filter(b => b && b.due && b.status !== 'oprita' && meta(b).m.agenda !== false).sort((x, y) => (x.due < y.due ? -1 : x.due > y.due ? 1 : 0));
-  const near = all.filter(b => dayNum(b.due) - dayNum(t) <= 31);
-  const later = all.filter(b => dayNum(b.due) - dayNum(t) > 31);
+  const unresolved = all.filter(b => billOccurrenceState(b, store.state) === 'open');
+  const recorded = all.filter(b => billOccurrenceState(b, store.state) === 'recorded');
+  const pending = all.filter(b => billOccurrenceState(b, store.state) === 'pending');
+  const near = unresolved.filter(b => dayNum(b.due) - dayNum(t) <= 31);
+  const later = unresolved.filter(b => dayNum(b.due) - dayNum(t) > 31);
   const payer = b => kind(b) !== 'auto';
   const soon = near.filter(b => payer(b) && dayNum(b.due) >= dayNum(t) && dayNum(b.due) - dayNum(t) <= 7);
   const pastN = near.filter(b => payer(b) && b.due < t).length;
@@ -90,8 +104,10 @@ function build() {
     const sheet = store.state.connection && store.state.connection.sheetUrl;
     html += `<div class="mb-foot">Datele vin din fila privată „Facturi” din Sheet${sheet ? ` · <a href="${esc(sheet)}" target="_blank" rel="noopener">Deschide Sheet-ul</a>` : ''}. Taskurile păstrează reminderele. Cardul deschide înregistrarea cheltuielii, fără plată automată.</div>`;
   }
+  if (pending.length) html += `<div class="mb-pastbox"><h3>În curs de sincronizare (${pending.length})</h3>${grouped(pending,t)}</div>`;
+  if (recorded.length) html += `<details class="mb-more"><summary>Înregistrate în Cheltuieli (${recorded.length})</summary><p>Scadențele de mai jos sunt înregistrate. Recurența și reminderele viitoare se păstrează.</p>${grouped(recorded,t)}</details>`;
   html += '</section>';
-  return { html, sig: JSON.stringify([t, all.map(b => [b.id, b.name, b.amount, b.currency, b.due, b.note, b.category, b.status, b.frequency])]), dueSoon: soon.length, late: pastN };
+  return { html, sig: JSON.stringify([t, all.map(b => [b.id, b.name, b.amount, b.currency, b.due, b.note, b.category, b.status, b.frequency, billOccurrenceState(b, store.state)])]), dueSoon: soon.length, late: pastN };
 }
 
 export function installManualBills() {
@@ -136,6 +152,7 @@ installManualBills();
 function openBillEntry(id, editing=false) {
   const b=(store.state.bills||[]).find(x=>x.id===id); if(!b)return;
   const mm=meta(b);
+  if(!editing && billOccurrenceState(b,store.state)!=='open')return;
   if(mm.m.ruleId&&!editing){const ruleButton=[...document.querySelectorAll('[data-rr-open]')].find(x=>x.dataset.rrOpen===mm.m.ruleId);if(ruleButton){ruleButton.click();return;}}
   const defaults=mm.m.entryDefaults||{};
   const occurrence=mm.m.reminderDue||b.due, source='bill-review-v1:'+b.id+'@'+occurrence;
