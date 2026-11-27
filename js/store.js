@@ -439,6 +439,8 @@ export class Store {
       toAccount: (type === "transfer" || type === "investitie") ? toAccount : "",
       toAmount: (type === "transfer" || type === "investitie") ? toAmount : null,
       payer,
+      person: String(data.person || "").trim(),
+      loan: Boolean(data.loan),
       bill: String(data.bill || "").trim(),
       source,
       owner: myEmail,
@@ -472,6 +474,8 @@ export class Store {
     const payer = params.payer || (srcAcc && normalizeAccountOwner(srcAcc.owner) === SHARED_OWNER ? SHARED_OWNER : myEmail);
 
     const transfer = {
+      person: String(params.person || "").trim(),
+      loan: Boolean(params.loan),
       ...createTransferRecord({
         ...params,
         currency: sCur,
